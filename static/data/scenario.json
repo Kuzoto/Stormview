@@ -1,0 +1,277 @@
+{
+  "meta": {
+    "title": "Tornado warning – weekday evening, Ann Arbor",
+    "date": "Monday, November 16",
+    "note": "Scripted demonstration scenario. Agency names identify who would supply each piece of information in a real deployment; the values are not real reports.",
+    "userLocation": "work",
+    "household": "Lives with a partner at Home; Mom lives in Ypsilanti."
+  },
+
+  "places": {
+    "home": { "name": "Home", "short": "Home", "addr": "Pittsfield Twp · S State St & Ellsworth Rd", "lat": 42.2372, "lng": -83.7305 },
+    "work": { "name": "Work", "short": "Work", "addr": "Downtown Ann Arbor · E Liberty St", "lat": 42.2797, "lng": -83.7468 },
+    "mom":  { "name": "Mom's house", "short": "Mom's", "addr": "Ypsilanti · W Cross St", "lat": 42.2459, "lng": -83.6243 }
+  },
+
+  "sources": {
+    "nws_warn":   { "name": "National Weather Service – Tornado Warning", "org": "NWS Detroit/Pontiac", "kind": "official", "url": "https://www.weather.gov/dtx/", "about": "Issues the official watch/warning, its area (polygon) and expiry time." },
+    "nws_radar":  { "name": "NWS Doppler radar (KDTX)", "org": "National Weather Service", "kind": "official", "url": "https://radar.weather.gov/", "about": "Radar shows rotation and the storm's location and direction." },
+    "nws_fcst":   { "name": "NWS hourly forecast", "org": "National Weather Service", "kind": "official", "url": "https://forecast.weather.gov/", "about": "Hourly rain, wind and gust forecast for each saved place." },
+    "dte":        { "name": "DTE Energy outage map", "org": "DTE Energy", "kind": "official", "url": "https://outage.dteenergy.com/map", "about": "Utility-reported outages, customers affected and estimated restoration times." },
+    "a2water":    { "name": "City of Ann Arbor – Water Treatment", "org": "City of Ann Arbor", "kind": "official", "url": "https://www.a2gov.org/", "about": "Water service status and boil-water advisories." },
+    "ycua":       { "name": "Ypsilanti Community Utilities Authority", "org": "YCUA", "kind": "official", "url": "https://www.ycua.org/", "about": "Water service status for Ypsilanti." },
+    "a2roads":    { "name": "City of Ann Arbor – Road closures", "org": "City of Ann Arbor", "kind": "official", "url": "https://www.a2gov.org/", "about": "Confirmed road closures and reopenings." },
+    "wcem":       { "name": "Washtenaw County Emergency Management – open facilities", "org": "Washtenaw County", "kind": "official", "url": "https://www.washtenaw.org/", "about": "Which public buildings are open, have power and water, and can take people in." },
+    "ready":      { "name": "Ready.gov – Tornado safety", "org": "FEMA", "kind": "official", "url": "https://www.ready.gov/tornadoes", "about": "Official guidance on where to shelter during a tornado." },
+    "neighbor":   { "name": "Neighbor Reports (in this app)", "org": "Community members", "kind": "community", "url": null, "about": "Reports posted by people near you. Not verified unless an official source confirms them." }
+  },
+
+  "shelterPlaces": [
+    { "id": "lib",   "name": "Fifth Ave Public Library", "near": "work", "distance": "0.3 mi from Work", "walk": "6 min walk", "hours": "Open until 9:00 PM", "power": true, "water": true, "notes": "Lower level open to the public as a storm refuge.", "lat": 42.2785, "lng": -83.7450, "sourceIds": ["wcem"] },
+    { "id": "cc",    "name": "Liberty Square Community Center", "near": "work", "distance": "0.5 mi from Work", "walk": "10 min walk", "hours": "Open 24 h during the emergency", "power": true, "water": true, "notes": "Designated county storm shelter. Generator power.", "lat": 42.2808, "lng": -83.7392, "sourceIds": ["wcem"] },
+    { "id": "pcc",   "name": "Pittsfield Community Center", "near": "home", "distance": "0.6 mi from Home", "walk": "3 min drive", "hours": "Open until 11:00 PM", "power": true, "water": true, "notes": "Drinking water and phone charging available.", "lat": 42.2330, "lng": -83.7230, "sourceIds": ["wcem"] },
+    { "id": "mkt",   "name": "State St Market (grocery)", "near": "home", "distance": "1.1 mi from Home", "walk": "4 min drive", "hours": "Open 24 h · generator power", "power": true, "water": true, "notes": "Bottled water in stock.", "lat": 42.2440, "lng": -83.7350, "sourceIds": ["wcem"] }
+  ],
+
+  "inBuilding": {
+    "work": [
+      "Go to the lowest floor of your building now: the basement or ground floor.",
+      "Get into an interior hallway, stairwell or restroom with no windows.",
+      "Stay away from the lobby's glass doors and windows.",
+      "Crouch down and cover your head and neck with your arms."
+    ],
+    "home": [
+      "Go to the basement. If there is none, use an interior room on the lowest floor (closet or bathroom).",
+      "Put as many walls as possible between you and the outside.",
+      "Cover your head; a mattress or heavy blankets help."
+    ]
+  },
+
+  "phases": [
+    {
+      "id": "warning",
+      "label": "Warning issued",
+      "clock": "7:40 PM",
+      "level": "warning",
+      "banner": { "title": "Tornado Warning", "levelLabel": "Warning · highest level", "area": "Covers Work & Home", "until": "until 8:45 PM", "sourceIds": ["nws_warn", "nws_radar"] },
+      "action": "Shelter where you are now. Don't drive.",
+      "dontDrive": true,
+      "alertText": "The National Weather Service issued a Tornado Warning at 7:15 PM for central Washtenaw County, including Ann Arbor and Pittsfield Twp, until 8:45 PM. Radar shows a storm with rotation 11 miles southwest of downtown Ann Arbor, moving northeast at 35 mph. Expected arrival near downtown around 8:00 PM. Hazards: tornado, damaging winds up to 70 mph, heavy rain 1–2 inches per hour. Ypsilanti is in a Severe Thunderstorm Warning, not the tornado warning.",
+      "severity": 4,
+      "timeline": [
+        { "time": "7:15 PM", "level": "high", "text": "Tornado Warning issued for Ann Arbor & Pittsfield Twp, until 8:45 PM.", "sourceIds": ["nws_warn"] },
+        { "time": "7:32 PM", "level": "high", "text": "Radar shows rotation 11 mi southwest of Work, moving northeast at 35 mph. It may reach downtown around 8:00 PM.", "sourceIds": ["nws_radar"] },
+        { "time": "7:36 PM", "level": "med", "text": "Tree reported down across S Main St at Eisenhower Pkwy.", "sourceIds": ["neighbor"] },
+        { "time": "7:38 PM", "level": "med", "text": "Power out near Home (about 1,900 customers). Estimated restoration 8:15 PM.", "sourceIds": ["dte"] }
+      ],
+      "impacts": {
+        "power": {
+          "tone": "bad", "headline": "Out at Home", "sub": "Estimated back 8:15 PM · Work and Mom's have power",
+          "rows": [
+            { "place": "home", "tone": "bad",  "text": "Outage since 7:38 PM, about 1,900 customers. DTE estimates power back by 8:15 PM.", "sourceIds": ["dte", "neighbor"] },
+            { "place": "work", "tone": "ok",   "text": "No outage reported.", "sourceIds": ["dte"] },
+            { "place": "mom",  "tone": "ok",   "text": "No outage reported.", "sourceIds": ["dte"] }
+          ]
+        },
+        "water": {
+          "tone": "ok", "headline": "Safe to drink", "sub": "No advisories at Home, Work or Mom's",
+          "rows": [
+            { "place": "home", "tone": "ok", "text": "Water is safe to drink. No advisories.", "sourceIds": ["a2water"] },
+            { "place": "work", "tone": "ok", "text": "Water is safe to drink. No advisories.", "sourceIds": ["a2water"] },
+            { "place": "mom",  "tone": "ok", "text": "Water is safe to drink. No advisories.", "sourceIds": ["ycua"] }
+          ]
+        },
+        "roads": {
+          "tone": "bad", "headline": "Don't drive now", "sub": "S Main St closed · flooding on Packard St",
+          "rows": [
+            { "place": "work", "tone": "bad", "text": "Don't drive during the warning. Your usual route home (S Main St) is blocked by a fallen tree at Eisenhower Pkwy.", "sourceIds": ["nws_warn", "neighbor"] },
+            { "place": "work", "tone": "warn", "text": "Water over the road on Packard St at Stadium Blvd, 0.4 mi from Work.", "sourceIds": ["neighbor"] },
+            { "place": "mom", "tone": "warn", "text": "Heavy rain in Ypsilanti. No closures reported.", "sourceIds": ["nws_fcst"] }
+          ]
+        },
+        "shelter": {
+          "tone": "bad", "headline": "Stay at Work", "sub": "Lowest floor, interior room, no windows",
+          "now": "work",
+          "rows": [
+            { "place": "work", "tone": "bad", "text": "Shelter inside your Work building now. Don't go outside to reach another shelter during the warning.", "sourceIds": ["nws_warn", "ready"] },
+            { "place": "home", "tone": "warn", "text": "Your partner is at Home. Home has no power but is otherwise safe. Basement recommended.", "sourceIds": ["dte", "ready"] }
+          ]
+        }
+      },
+      "storm": { "lat": 42.205, "lng": -83.875, "radiusKm": 3.2, "heading": "NE 35 mph" },
+      "warnPolygon": [[42.165, -83.93], [42.215, -83.95], [42.325, -83.70], [42.275, -83.66]],
+      "outages": [ { "center": [42.2372, -83.7305], "radiusKm": 0.9, "label": "Power outage · ~1,900 customers" } ],
+      "roadMarks": [
+        { "kind": "closed", "lat": 42.2440, "lng": -83.7470, "label": "S Main St at Eisenhower Pkwy: closed, fallen tree", "time": "7:36 PM", "sourceIds": ["neighbor"] },
+        { "kind": "flood",  "lat": 42.2595, "lng": -83.7520, "label": "Packard St at Stadium Blvd: water over road", "time": "7:39 PM", "sourceIds": ["neighbor"] }
+      ],
+      "summaryFallback": "A tornado could reach downtown around 8:00 PM. Stay inside at Work on the lowest floor, away from windows, and don't drive. Power is out at Home until about 8:15 PM; water is safe everywhere."
+    },
+
+    {
+      "id": "update",
+      "label": "Storm overhead",
+      "clock": "8:05 PM",
+      "level": "warning",
+      "banner": { "title": "Tornado Warning", "levelLabel": "Warning · highest level", "area": "Covers Work & Home", "until": "until 8:45 PM", "sourceIds": ["nws_warn", "nws_radar"] },
+      "action": "Stay sheltered. The storm is passing just north of Work.",
+      "dontDrive": true,
+      "alertText": "The Tornado Warning for Ann Arbor and Pittsfield Twp continues until 8:45 PM. At 8:00 PM, radar shows the rotating storm 1.5 miles west of downtown Ann Arbor, moving northeast at 35 mph. A funnel cloud was reported near Pioneer High School at 7:58 PM. It is expected to leave the Ann Arbor area by 8:30 PM.",
+      "severity": 5,
+      "timeline": [
+        { "time": "7:15 PM", "level": "high", "text": "Tornado Warning issued for Ann Arbor & Pittsfield Twp, until 8:45 PM.", "sourceIds": ["nws_warn"] },
+        { "time": "7:38 PM", "level": "med", "text": "Power out near Home (about 1,900 customers).", "sourceIds": ["dte"] },
+        { "time": "7:58 PM", "level": "high", "text": "Funnel cloud reported near Pioneer High School, 1.5 mi west of Work.", "sourceIds": ["nws_radar"] },
+        { "time": "8:00 PM", "level": "med", "text": "Boil-water advisory for the Home area. The outage caused a pressure drop at a pump station.", "sourceIds": ["a2water"] },
+        { "time": "8:03 PM", "level": "info", "text": "DTE moved the restoration estimate for Home from 8:15 PM to 8:30 PM.", "sourceIds": ["dte"] }
+      ],
+      "impacts": {
+        "power": {
+          "tone": "bad", "headline": "Out at Home", "sub": "Estimated back 8:30 PM (was 8:15) · Work has power",
+          "rows": [
+            { "place": "home", "tone": "bad", "text": "Still out. DTE crews are on site; estimated back by 8:30 PM (moved from 8:15 PM).", "sourceIds": ["dte"] },
+            { "place": "work", "tone": "ok",  "text": "No outage reported.", "sourceIds": ["dte"] },
+            { "place": "mom",  "tone": "warn", "text": "Brief flickers reported. No outage.", "sourceIds": ["dte"] }
+          ]
+        },
+        "water": {
+          "tone": "warn", "headline": "Boil water at Home", "sub": "Advisory since 8:00 PM · Work and Mom's are fine",
+          "rows": [
+            { "place": "home", "tone": "warn", "text": "Boil-water advisory since 8:00 PM. Boil tap water for 1 minute before drinking, or use bottled water.", "sourceIds": ["a2water"] },
+            { "place": "work", "tone": "ok", "text": "Water is safe to drink.", "sourceIds": ["a2water"] },
+            { "place": "mom",  "tone": "ok", "text": "Water is safe to drink.", "sourceIds": ["ycua"] }
+          ]
+        },
+        "roads": {
+          "tone": "bad", "headline": "Don't drive now", "sub": "S Main St closed · flooding on Packard St",
+          "rows": [
+            { "place": "work", "tone": "bad", "text": "Don't drive. The storm is passing close to Work. S Main St at Eisenhower Pkwy is closed (confirmed by the City at 7:52 PM).", "sourceIds": ["nws_warn", "a2roads"] },
+            { "place": "work", "tone": "warn", "text": "Water over the road on Packard St at Stadium Blvd. Cars are turning around.", "sourceIds": ["neighbor"] },
+            { "place": "mom", "tone": "warn", "text": "Heavy rain in Ypsilanti. No closures reported.", "sourceIds": ["nws_fcst"] }
+          ]
+        },
+        "shelter": {
+          "tone": "bad", "headline": "Stay at Work", "sub": "Storm 1.5 mi west · stay on the lowest floor",
+          "now": "work",
+          "rows": [
+            { "place": "work", "tone": "bad", "text": "Stay in your interior, windowless room. The storm is closest to Work around 8:05–8:15 PM.", "sourceIds": ["nws_radar", "ready"] },
+            { "place": "home", "tone": "warn", "text": "Home: no power and a boil-water advisory. Pittsfield Community Center (0.6 mi) has power and water once the warning ends.", "sourceIds": ["wcem", "a2water"] }
+          ]
+        }
+      },
+      "storm": { "lat": 42.276, "lng": -83.772, "radiusKm": 3.0, "heading": "NE 35 mph" },
+      "warnPolygon": [[42.165, -83.93], [42.215, -83.95], [42.325, -83.70], [42.275, -83.66]],
+      "outages": [ { "center": [42.2372, -83.7305], "radiusKm": 0.9, "label": "Power outage · ~1,900 customers" } ],
+      "roadMarks": [
+        { "kind": "closed", "lat": 42.2440, "lng": -83.7470, "label": "S Main St at Eisenhower Pkwy: closed, fallen tree (City confirmed)", "time": "7:52 PM", "sourceIds": ["a2roads", "neighbor"] },
+        { "kind": "flood",  "lat": 42.2595, "lng": -83.7520, "label": "Packard St at Stadium Blvd: water over road", "time": "8:02 PM", "sourceIds": ["neighbor"] }
+      ],
+      "summaryFallback": "The tornado is passing 1.5 miles west of Work right now. Stay in your interior room. At Home, power is out until about 8:30 PM and tap water must be boiled."
+    },
+
+    {
+      "id": "clear",
+      "label": "Danger has passed",
+      "clock": "8:55 PM",
+      "level": "clear",
+      "banner": { "title": "Danger has passed", "levelLabel": "All clear", "area": "Warning expired 8:45 PM", "until": "", "sourceIds": ["nws_warn"] },
+      "action": "Safe to go home. Avoid S Main St; use S State St.",
+      "dontDrive": false,
+      "alertText": "The Tornado Warning expired at 8:45 PM. The storm moved northeast of Washtenaw County. A brief EF-1 tornado touched down near Pioneer High School at 8:01 PM (preliminary). Some roads are still closed.",
+      "severity": 1,
+      "timeline": [
+        { "time": "7:15 PM", "level": "high", "text": "Tornado Warning issued, until 8:45 PM.", "sourceIds": ["nws_warn"] },
+        { "time": "8:00 PM", "level": "med", "text": "Boil-water advisory for the Home area.", "sourceIds": ["a2water"] },
+        { "time": "8:24 PM", "level": "ok", "text": "Power restored near Home.", "sourceIds": ["dte"] },
+        { "time": "8:40 PM", "level": "ok", "text": "Packard St at Stadium Blvd reopened.", "sourceIds": ["a2roads"] },
+        { "time": "8:45 PM", "level": "ok", "text": "Tornado Warning expired. Danger has passed.", "sourceIds": ["nws_warn"] }
+      ],
+      "impacts": {
+        "power": {
+          "tone": "ok", "headline": "Restored", "sub": "Power back at Home since 8:24 PM",
+          "rows": [
+            { "place": "home", "tone": "ok", "text": "Power restored at 8:24 PM.", "sourceIds": ["dte"] },
+            { "place": "work", "tone": "ok", "text": "No outage.", "sourceIds": ["dte"] },
+            { "place": "mom",  "tone": "ok", "text": "No outage.", "sourceIds": ["dte"] }
+          ]
+        },
+        "water": {
+          "tone": "warn", "headline": "Boil water at Home", "sub": "Advisory until tested · about tomorrow 6 PM",
+          "rows": [
+            { "place": "home", "tone": "warn", "text": "The boil-water advisory stays in effect until testing is done, expected tomorrow by 6:00 PM.", "sourceIds": ["a2water"] },
+            { "place": "work", "tone": "ok", "text": "Water is safe to drink.", "sourceIds": ["a2water"] },
+            { "place": "mom",  "tone": "ok", "text": "Water is safe to drink.", "sourceIds": ["ycua"] }
+          ]
+        },
+        "roads": {
+          "tone": "warn", "headline": "OK to drive", "sub": "Avoid S Main St at Eisenhower · take S State St",
+          "rows": [
+            { "place": "work", "tone": "ok", "text": "It's safe to drive. Recommended route home: S State St (about 14 min).", "sourceIds": ["nws_warn", "a2roads"] },
+            { "place": "home", "tone": "warn", "text": "S Main St at Eisenhower Pkwy is still closed. City crews are clearing the tree.", "sourceIds": ["a2roads", "neighbor"] },
+            { "place": "work", "tone": "ok", "text": "Packard St at Stadium Blvd reopened at 8:40 PM.", "sourceIds": ["a2roads"] }
+          ]
+        },
+        "shelter": {
+          "tone": "ok", "headline": "No need to shelter", "sub": "Home has power · boil tap water",
+          "now": "work",
+          "rows": [
+            { "place": "home", "tone": "ok", "text": "Home has power again. Boil tap water or use bottled water.", "sourceIds": ["dte", "a2water"] },
+            { "place": "home", "tone": "ok", "text": "State St Market (1.1 mi from Home) has bottled water in stock and is open 24 h.", "sourceIds": ["wcem"] }
+          ]
+        }
+      },
+      "storm": null,
+      "warnPolygon": null,
+      "outages": [],
+      "roadMarks": [
+        { "kind": "closed", "lat": 42.2440, "lng": -83.7470, "label": "S Main St at Eisenhower Pkwy: still closed, crews clearing", "time": "8:50 PM", "sourceIds": ["a2roads", "neighbor"] }
+      ],
+      "routeHome": [[42.2797, -83.7468], [42.2765, -83.7405], [42.2700, -83.7400], [42.2560, -83.7395], [42.2450, -83.7380], [42.2372, -83.7305]],
+      "summaryFallback": "The danger has passed and it's safe to drive home. Take S State St because S Main St is still closed. Power is back at Home, but boil tap water until tomorrow evening."
+    }
+  ],
+
+  "routes": {
+    "lib": [[42.2797, -83.7468], [42.2792, -83.7458], [42.2785, -83.7450]],
+    "cc":  [[42.2797, -83.7468], [42.2800, -83.7430], [42.2808, -83.7392]],
+    "pcc": [[42.2372, -83.7305], [42.2350, -83.7270], [42.2330, -83.7230]],
+    "mkt": [[42.2372, -83.7305], [42.2410, -83.7340], [42.2440, -83.7350]]
+  },
+
+  "circle": [
+    { "id": "partner", "name": "Alex (partner)", "initials": "A", "where": "At Home", "status": "safe", "time": "7:31 PM" },
+    { "id": "mom",     "name": "Mom",            "initials": "M", "where": "Ypsilanti", "status": "none", "time": null, "autoReply": { "status": "safe", "afterMs": 20000, "note": "Lights flickering but we're OK" } },
+    { "id": "sam",     "name": "Sam (friend)",   "initials": "S", "where": "Ann Arbor", "status": "none", "time": null }
+  ],
+
+  "posts": [
+    { "id": "p1", "phase": 0, "author": "Linda B.", "context": "Neighbor · 0.2 mi from Home · member since 2023", "time": "7:36 PM", "category": "Road", "text": "Big tree down across S Main by Eisenhower, both lanes blocked. Don't come this way.", "image": "tree", "verified": "City of Ann Arbor confirmed at 7:52 PM", "verifiedPhase": 1 },
+    { "id": "p2", "phase": 0, "author": "Brenda L.", "context": "Neighbor · 0.4 mi from Home", "time": "7:39 PM", "category": "Power", "text": "Power out on our street since 7:35. DTE map shows it too.", "verified": "Matches DTE outage map", "verifiedPhase": 0 },
+    { "id": "p3", "phase": 0, "author": "Jordan K.", "context": "Commuter · 0.4 mi from Work", "time": "7:39 PM", "category": "Flooding", "text": "Packard at Stadium is under water, cars turning around.", "verified": null },
+    { "id": "p4", "phase": 1, "author": "Priya S.", "context": "Neighbor · 1.4 mi from Work", "time": "8:01 PM", "category": "Other", "text": "Saw a funnel from my window near Pioneer HS, heading northeast. Everyone get inside!", "verified": "Matches NWS radar at 7:58 PM", "verifiedPhase": 1 },
+    { "id": "p5", "phase": 2, "author": "Linda B.", "context": "Neighbor · 0.2 mi from Home · member since 2023", "time": "8:50 PM", "category": "Road", "text": "City crew is here cutting up the tree. Still blocked for now.", "verified": "City of Ann Arbor: still closed", "verifiedPhase": 2 }
+  ],
+
+  "forecast": {
+    "hours": ["7 PM", "7:30", "8 PM", "8:30", "9 PM", "9:30", "10 PM"],
+    "phaseHourIndex": { "warning": 1, "update": 2, "clear": 4 },
+    "places": {
+      "work": { "rain": [0.2, 0.9, 1.8, 0.8, 0.2, 0.05, 0], "gust": [22, 45, 68, 40, 24, 15, 12], "risk": ["Storms", "Tornado possible", "Tornado likely nearby", "Storm leaving", "Clearing", "Clear", "Clear"] },
+      "home": { "rain": [0.3, 1.1, 1.5, 0.6, 0.1, 0, 0], "gust": [25, 50, 60, 35, 20, 14, 10], "risk": ["Storms", "Tornado possible", "Tornado possible", "Storm leaving", "Clearing", "Clear", "Clear"] },
+      "mom":  { "rain": [0.1, 0.5, 1.2, 1.4, 0.5, 0.1, 0], "gust": [18, 32, 44, 50, 30, 18, 12], "risk": ["Rain", "Severe storm", "Severe storm", "Severe storm", "Storm leaving", "Clearing", "Clear"] }
+    }
+  },
+
+  "appGuide": [
+    "Bottom tabs on every screen: Home, Map, Check-In, Ask/Help (this chat), More.",
+    "The colored banner at the top of every screen shows the alert level and when it ends. Tap it for the full official alert.",
+    "Every claim has a small source chip (✓ for official, ? for community reports). Tap it to see who reported it and when. More → Sources lists every source.",
+    "Home → 'What this means for you' cards (Power, Water, Roads, Shelter) open details for Home, Work and Mom's house.",
+    "Home → Updates shows the timeline of changes, newest last, color-coded by urgency.",
+    "Shelter card → shows what to do in your building now, nearby public places with power and water, and a route button.",
+    "Map tab → choose one layer at the top (Radar, Roads, Power, Shelters). The legend at the bottom explains every symbol.",
+    "Check-In tab → tap 'I'm safe' or 'I need help', then confirm. Your status and who it was sent to stay at the top of the page. 'Request check-in' asks someone for their status; '+ Add person' sends an invite link (they don't need the app).",
+    "More → Forecast at My Places shows hourly rain and wind for Home, Work and Mom's house. More → My Places lets you add or edit places.",
+    "More → Neighbor Reports shows posts from people nearby with time and distance; you can post what you see."
+  ]
+}

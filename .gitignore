@@ -1,0 +1,5 @@
+.env
+logs/
+certs/
+bin/
+__pycache__/
