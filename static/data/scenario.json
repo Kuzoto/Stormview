@@ -1235,6 +1235,14 @@
    "kind": "community",
    "url": "",
    "about": "Posts from app users near your places. Not verified."
+  },
+  "traffic_live": {
+   "name": "TomTom live traffic",
+   "short": "TomTom",
+   "org": "TomTom (commercial traffic provider)",
+   "kind": "provider",
+   "url": "https://www.tomtom.com/traffic-index/",
+   "about": "Road closures, crashes, roadworks, flooding and congestion, combining road-authority feeds with anonymous driver data. Updated about every 25 minutes in this app."
   }
  }
 }

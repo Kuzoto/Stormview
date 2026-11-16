@@ -19,7 +19,7 @@ export function Sources() {
     <div class="callout small"><strong>✓ Official</strong> = government agency or utility. <strong>? Community</strong> = posts from people nearby, not verified until an official source confirms them. Information as of <strong>${ph.clock}</strong>.</div>
     ${groups.map(([title, ids]) => html`<section class="card mt12">
       <h2>${title}</h2>
-      ${ids.map((id) => { const src = SC.sources[id]; const off = src.kind === 'official'; return html`<div class="src-row">
+      ${ids.map((id) => { const src = SC.sources[id]; const off = src.kind === 'official' || src.kind === 'provider'; return html`<div class="src-row">
         <div class=${'src-badge ' + (off ? 'off' : 'com')}>${off ? '✓' : '?'}</div>
         <div class="grow"><div class="src-name">${src.name}</div><div class="small muted">${src.about}</div>
           ${src.url && !s.offline ? html`<a class="link small" href=${src.url} target="_blank" rel="noopener">${src.org} website <${Icon} n="ext" size=${12} /></a>` : ''}</div></div>`; })}

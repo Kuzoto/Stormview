@@ -148,9 +148,17 @@ export function Impact({ id }) {
       <${Ext} href="https://www.epa.gov/ground-water-and-drinking-water/emergency-disinfection-drinking-water">EPA: what to do during a boil-water notice</${Ext}></section>
     <h2 class="mt16">Public buildings nearby</h2><${PublicPlaces} />`;
   else if (live && id === 'roads') extra = html`
+    ${ph.traffic && ph.traffic.enabled ? html`<h2 class="mt16">Closures & incidents nearby</h2>
+      ${!ph.traffic.updated ? html`<p class="small muted">Loading live traffic…</p>`
+        : !ph.traffic.incidents.filter((i) => i.distanceMi <= 10).length ? html`<p class="small muted">No closures or incidents within 10 mi right now (TomTom).</p>`
+        : html`<div class="rows">${ph.traffic.incidents.filter((i) => i.distanceMi <= 10).slice(0, 8).map((i) => html`<div class=${'prow ' + (i.closed ? 'bad' : 'warn')}>
+          <span class=${'rep-ic tt ' + (i.closed ? 'closed' : '')}>${i.closed ? '⛔' : '!'}</span>
+          <div class="grow"><div class="prow-text"><strong>${i.label}${i.roads.length ? ' · ' + i.roads.join(', ') : ''}</strong>${i.from ? ' · ' + i.from + (i.to && i.to !== i.from ? ' → ' + i.to : '') : ''}</div>
+            <div class="small muted">${i.distanceMi} mi away${i.delayMin ? ' · ' + i.delayMin + ' min delay' : ''}${i.description ? ' · ' + i.description : ''}</div></div>
+          <${SourceChip} ids=${['traffic_live']} claim=${i.label + ' ' + (i.from || '')} /></div>`)}</div>`}` : ''}
     <h2 class="mt16">Road hazards reported nearby</h2>
     ${noneNear(roadPred, ['Road', 'Flooding', 'Damage']) ? html`<p class="small muted">No NWS storm reports or neighbor posts about flooding, trees down or roads nearby.</p>` : html`<div class="rows">${nearReports(roadPred, ['Road', 'Flooding', 'Damage'])}</div>`}
-    <section class="card mt12"><h3>Closures & traffic</h3><p class="small">Official closures and crashes come from your state's 511 service. This app shows NWS storm reports, neighbor posts and weather-based driving risk.</p>
+    <section class="card mt12"><h3>Official closures</h3><p class="small">${ph.traffic && ph.traffic.updated ? 'TomTom combines road-authority feeds and driver data. For official closures and detours, check your state\'s 511 service.' : 'Official closures and crashes come from your state\'s 511 service. This app shows NWS storm reports, neighbor posts and weather-based driving risk.'}</p>
       <${Ext} href="https://www.fhwa.dot.gov/trafficinfo/">Find your state's 511 traffic site</${Ext}></section>
     <button class="btn ghost full mt12" onClick=${() => nav('/map?layer=roads')}><${Icon} n="map" size=${18} /> View road reports on the map</button>`;
   else if (id === 'power') extra = html`<h2 class="mt16">Places with power near you</h2><${PublicPlaces} filter="power" />`;

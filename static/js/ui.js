@@ -85,7 +85,7 @@ export const SHORT = {
 
 export function SourceChip({ ids = [], claim = '', light = false }) {
   if (!ids.length) return null;
-  const off = ids.filter((i) => SC.sources[i] && SC.sources[i].kind === 'official');
+  const off = ids.filter((i) => SC.sources[i] && (SC.sources[i].kind === 'official' || SC.sources[i].kind === 'provider'));
   const onlyCommunity = off.length === 0;
   const first = off[0] || ids[0];
   const label = (SC.sources[first] && SC.sources[first].short) || SHORT[first] || first;
@@ -111,12 +111,12 @@ export function SourceList({ ids, claim }) {
     ${ids.map((id) => {
       const src = SC.sources[id];
       if (!src) return null;
-      const official = src.kind === 'official';
+      const official = src.kind === 'official' || src.kind === 'provider';
       return html`<div class="src-row">
         <div class=${'src-badge ' + (official ? 'off' : 'com')}>${official ? '✓' : '?'}</div>
         <div class="grow">
           <div class="src-name">${src.name}</div>
-          <div class="muted small">${official ? 'Official source' : 'Community report: not verified'} · ${src.org}</div>
+          <div class="muted small">${src.kind === 'provider' ? 'Traffic data provider' : official ? 'Official source' : 'Community report: not verified'} · ${src.org}</div>
           <div class="small">${src.about}</div>
           ${src.url && !s.offline ? html`<a class="link small" href=${src.url} target="_blank" rel="noopener">Open ${src.org} website <${Icon} n="ext" size=${13} /></a>` : ''}
         </div>

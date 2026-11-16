@@ -45,7 +45,7 @@ It then opens without browser chrome.
 | Storm path + arrival estimates | Storm motion in NWS tornado / severe thunderstorm warnings | Purple dashed path for the next 60 min, plus "may reach Work in about 10 min". An estimate only. |
 | Storm reports | NWS Local Storm Reports (trees/power lines down, flooding, tornado, hail, snow) via IEM | Orange pins on Radar/Roads/Power, in Updates, and on the Power/Roads detail pages. Last 48 h, within 30 mi. |
 | Power outages | DOE/ORNL **ODIN** (county level) for utilities that report to it; the utility serving each place comes from the EIA/HIFLD service-territory map | If the utility doesn't report (e.g. **DTE**), the app says so and shows NWS reports plus neighbor posts about power, with links to the utility's outage map and PowerOutage.us |
-| Road hazards | NWS storm reports + neighbor Road/Flooding posts on the map | No free live closure/traffic feed yet (TomTom key planned, see PLANNED.md) |
+| Road closures & traffic | **TomTom** (optional key): traffic-colored roads, closures (red dashed + sign), crashes, roadworks, jams; plus NWS storm reports and neighbor Road/Flooding posts | Without `TOMTOM_API_KEY` the Roads layer shows NWS reports, neighbor posts and a link to 511. Free tier: 2,500 incident requests and 200,000 tiles **per month**, so incidents are cached ~25 min and shared by all phones, tiles go through the server (key never sent to phones), and monthly caps stop before the free limits. Usage is shown in the researcher panel. |
 | Public buildings near your places (libraries, community centers, town halls) | OpenStreetMap (Nominatim) | Labeled *not official shelters*. Looked up in the background and cached for a week. |
 | My location | Phone GPS, rounded to ~100 m | Needs **https** (the tunnel) or localhost. Otherwise the app uses Ann Arbor and says so. You can also set it by hand in My Places. |
 | Add a place by address or city | US Census geocoder, Open-Meteo | More → My Places |
@@ -120,6 +120,7 @@ prototype/
   posts.py                Shared Neighbor Reports: posts + photos in userdata/ (git-ignored), delete/report
   mapdata.py              Live map extras: NWS storm reports, zone shapes, storm track, radar time, ODIN power + utility lookup
   circle.py               Safety circle sync: display names, invite links, statuses, "ask if OK", /r/<code> reply page
+  traffic.py              TomTom traffic (optional): incidents near your places, flow-tile proxy, monthly caps
   PLANNED.md              Planned / proposed features
   .env.example            OpenAI settings template (copy to .env)
   tunnel.sh               HTTPS tunnel for phones (cloudflared quick tunnel)

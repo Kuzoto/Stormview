@@ -506,6 +506,10 @@ def build_live(raw_places, here_id="here", tz_minutes=None):
     extra_pending = False
     lsr, pend = MD.storm_reports(places)
     extra_pending = extra_pending or pend
+    import traffic as TT
+    traffic, pend = TT.nearby(places)
+    extra_pending = extra_pending or pend
+    closures = [i for i in traffic["incidents"] if i["closed"] or i["kind"] == "flood"]
     track = None
     for a in alerts:
         track = MD.storm_track(a, places, now)
@@ -516,6 +520,12 @@ def build_live(raw_places, here_id="here", tz_minutes=None):
         timeline.append({"time": fmt_clock(parse_t(track["observedAt"]).astimezone(tz)), "_t": parse_t(track["observedAt"]).timestamp(),
                          "level": "high", "text": "Radar: %s moving %s at %d mph, %s (estimate)." % (track["what"], track["heading"], track["mph"], eta),
                          "sourceIds": ["nws_live", "radar_live"]})
+    for c in [c for c in closures if c["distanceMi"] <= 5][:3]:
+        t = parse_t(c["start"])
+        where = c["from"] + ((" to " + c["to"]) if c["to"] and c["to"] != c["from"] else "")
+        timeline.append({"time": fmt_when(t, now) if t else fmt_clock(now), "_t": t.timestamp() if t else now.timestamp() - 1, "level": "med",
+                         "text": "%s%s%s, %s mi from %s." % (c["label"], (" on " + ", ".join(c["roads"])) if c["roads"] else "", (": " + where) if where else "",
+                                                           c["distanceMi"], name[c["near"]]), "sourceIds": ["traffic_live"]})
     for r in [r for r in lsr if r["distanceMi"] <= 10][:4]:
         t = parse_t(r["time"])
         timeline.append({"time": fmt_when(t, now) if t else "", "_t": t.timestamp() if t else 0, "level": "med",
@@ -616,6 +626,31 @@ def build_live(raw_places, here_id="here", tz_minutes=None):
         new_rows.append(row(pid, tone, " ".join(parts), list(dict.fromkeys(src))))
     power_rows = new_rows
 
+    new_roads = []
+    for base in road_rows:
+        pid = base["place"]
+        p = next(x for x in places if x["id"] == pid)
+        near_c = [c for c in closures if c["near"] == pid and c["distanceMi"] <= 5]
+        near_major = [i for i in traffic["incidents"] if i["near"] == pid and i["distanceMi"] <= 5 and not i["closed"]
+                      and (i["magnitude"] == "major" or i["kind"] in ("accident", "ice", "danger"))]
+        tone, src, text = base["tone"], list(base["sourceIds"]), base["text"]
+        if traffic["enabled"] and traffic["updated"]:
+            src = [s for s in src if s != "roads_live"] + ["traffic_live"]
+            text = text.replace(" Closures: check 511.", "").replace(" · closures: 511", "")
+            if near_c:
+                tone = "bad" if tone == "bad" else "warn"
+                c = near_c[0]
+                where = (", ".join(c["roads"]) + (" at " + c["from"] if c["from"] else "")) if c["roads"] else (c["from"] or c["label"])
+                text += " %d road closure%s within 5 mi, nearest: %s." % (len(near_c), "s" if len(near_c) > 1 else "", where)
+            if near_major:
+                tone = "bad" if tone == "bad" else "warn"
+                i = near_major[0]
+                text += " %s near %s%s." % (i["label"], i["from"] or "you", (", %d min delay" % i["delayMin"]) if i["delayMin"] else "")
+            if not near_c and not near_major:
+                text += " No closures or major incidents within 5 mi (TomTom)."
+        new_roads.append(row(pid, tone, text.strip(), list(dict.fromkeys(src))))
+    road_rows = new_roads
+
     def worst(rows):
         order = {"bad": 2, "warn": 1, "ok": 0}
         return max(rows, key=lambda r: order[r["tone"]])
@@ -634,8 +669,11 @@ def build_live(raw_places, here_id="here", tz_minutes=None):
     water = {"tone": w["tone"], "headline": "Flood alert" if w["tone"] != "ok" else "No flood alerts",
              "sub": "Boil-water notices: your utility", "rows": water_rows}
     w = worst(road_rows)
-    roads = {"tone": w["tone"], "headline": {"bad": "Don't drive now", "warn": "Drive with care", "ok": "No weather hazards"}[w["tone"]],
-             "sub": (pnames(road_rows, w["tone"]) if w["tone"] != "ok" else "Next 12 hours") + " · closures: 511", "rows": road_rows}
+    n_close = len([c for c in closures if c["distanceMi"] <= 5])
+    roads = {"tone": w["tone"],
+             "headline": "Don't drive now" if w["tone"] == "bad" and dont_drive else ("Road closures nearby" if n_close else {"bad": "Don't drive now", "warn": "Drive with care", "ok": "No weather hazards"}[w["tone"]]),
+             "sub": (pnames(road_rows, w["tone"]) if w["tone"] != "ok" else "Next 12 hours") + (" · %d closure%s (TomTom)" % (n_close, "s" if n_close != 1 else "") if traffic["updated"] else " · closures: 511"),
+             "rows": road_rows}
     hs = next(r for r in shelter_rows if r["place"] == here["id"]) if here["id"] in ids else worst(shelter_rows)
     w = worst(shelter_rows)
     shelter = {"tone": w["tone"], "now": here["id"],
@@ -701,6 +739,7 @@ def build_live(raw_places, here_id="here", tz_minutes=None):
         "publicPlaces": public,
         "publicPending": public_pending or extra_pending,
         "stormReports": lsr,
+        "traffic": traffic,
         "stormTrack": track,
         "power": power_data,
         "mapPosts": [p for pl in places[:3] for p in POSTS.nearby(pl["lat"], pl["lng"], radius_mi=15, limit=40,
@@ -729,7 +768,7 @@ Your job:
 Hard rules:
 - Use ONLY facts in LIVE DATA. Never invent alerts, times, numbers or sources. You explain official information; you are not a forecaster.
 - Power: LIVE DATA "power" has county outage counts ONLY where the utility reports to the federal ODIN system ("covered": true). Otherwise there is no live outage data: give the weather-based risk plus any NWS storm reports or neighbor posts, and name the outage map to check. Never claim a specific home has or lacks power.
-- There is NO live data for boil-water notices or road closures. Use NWS storm reports (flooding, trees down) and alerts, and point to the water utility or 511. Neighbor posts are unverified.
+- Roads: LIVE DATA "traffic" has TomTom closures and incidents when "available" is true; otherwise there is no live closure data, so point to 511. There is NO live data for boil-water notices: point to the water utility. NWS storm reports (flooding, trees down) and alerts also help. Neighbor posts are unverified.
 - Public buildings in LIVE DATA come from OpenStreetMap: they are not official shelters and their hours, power and water are unconfirmed.
 - If the data does not answer the question, say so plainly and point to the most relevant official source (or 911 for an emergency).
 - When the user's safety is at stake, lead with the action they should take.
@@ -768,6 +807,9 @@ def build_system_live(live, user_state, guide, max_words=90):
     view["publicPlaces"] = [{k: p[k] for k in ("name", "kind", "near", "distance", "hours")} for p in live.get("publicPlaces", [])[:8]]
     for k in ("mapPosts", "radarTime", "publicPending", "errors"):
         view.pop(k, None)
+    tr = live.get("traffic") or {}
+    view["traffic"] = {"available": bool(tr.get("updated")), "incidents": [{k: i[k] for k in ("label", "roads", "from", "to", "delayMin", "distanceMi", "magnitude", "description")}
+                                                                     for i in tr.get("incidents", [])[:12]]}
     view["stormReports"] = [{k: r[k] for k in ("label", "magnitude", "city", "source", "remark", "time", "distanceMi")} for r in live.get("stormReports", [])[:10]]
     pw = live.get("power") or {}
     view["power"] = {"byPlace": pw.get("byPlace"), "whereToCheck": [l["label"] for l in pw.get("links", [])],

@@ -35,7 +35,7 @@ Circle updates and new severe alerts as real phone notifications even when the a
 | 3. Zone-based alerts drawn on the map (watches, winter storms, floods) | NWS zone shapes | — | Done |
 | 4. Storm position + projected path and arrival time at your places | NWS warning `eventMotionDescription` | — | Done |
 | 5. Radar timestamp + 1-hour loop | IEM NEXRAD tiles | — | Done |
-| Traffic flow + incidents (road closed, crashes, roadworks, flooding) | TomTom Traffic API | Free API key (`TOMTOM_API_KEY` in `.env`) | Proposed |
+| Traffic flow + incidents (road closed, crashes, roadworks, flooding) | TomTom Traffic API: Incident Details v5 (cached ~25 min per area, capped at 2,300/month) + Raster Flow Tiles v4 (proxied through the server, capped at 190,000/month) | Free API key (`TOMTOM_API_KEY` in `.env`) | Built Nov 16, tested against a mock. **Needs the real key** |
 | Power outages (free, official, where available) | DOE/ORNL ODIN public feed (`odin.ornl.gov/odi/status`, `/odi/map`; no key). 159 utilities as of Nov 16, incl. Consumers Energy and several MI co-ops. **DTE does not participate**. Anonymous access is county-level. Utility per place from the EIA/HIFLD service-territory layer. Fallback when not covered: NWS reports + neighbor Power posts + links (utility outage map, PowerOutage.us) | — | Done |
 | Power outages (DTE) | (a) unofficial Kubra feed behind DTE's map, (b) paid aggregator: PowerOutage.us ~$1,000–1,500/mo, county/city level, or Outage Pro (quote only); ask both about free student/research access | Group decision (terms of use / cost) | Proposed |
 | Safe walking/driving routes that avoid closures | OpenRouteService | Free API key | Proposed |

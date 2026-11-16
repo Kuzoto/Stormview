@@ -486,3 +486,8 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; gap: 6
 img.avatar { object-fit: cover; }
 .bsky-q { height: 38px; border: 1.5px solid #cfd6de; border-radius: 10px; padding: 0 10px; min-width: 0; }
 .post-actions { align-items: center; }
+.mk.m-tt { background: #f0a020; color: #3b2600; border-radius: 50%; border: 2px solid #fff; display: grid; place-items: center; font-weight: 900; font-size: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+.mk.m-tt.accident, .mk.m-tt.danger { background: #c62828; color: #fff; } .mk.m-tt.flood { background: #1565c0; color: #fff; } .mk.m-tt.jam { background: #8e2424; color: #fff; }
+.lg.flow { height: 6px; border-radius: 3px; background: linear-gradient(90deg, #2e9b4a, #f6c343, #e5512c, #8b1a1a); }
+.lg.tt { background: #f0a020; border-radius: 9px; border: 2px solid #fff; box-shadow: 0 0 0 1px #c88a14; }
+.rep-ic.tt { background: #f0a020; } .rep-ic.tt.closed { background: none; font-size: 15px; }

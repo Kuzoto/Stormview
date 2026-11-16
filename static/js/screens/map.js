@@ -77,6 +77,24 @@ function drawPosts(g, ph, onPick, cats) {
     if (onPick) m.on('click', () => onPick({ title: `Neighbor: ${p.category}`, sub: `"${p.text.slice(0, 140)}" · ${p.author} · about ${p.distanceMi} mi away · unverified`, ids: ['posts_live'], post: true }));
   });
 }
+// TomTom: traffic-flow tiles (through our server, which holds the key) + incident pins / closed segments.
+const TT_GLYPH = { accident: '!', jam: '≡', works: 'W', lane: '⇥', flood: '≈', ice: '*', danger: '!', fog: '~', rain: '‖', wind: 'W', breakdown: '!', other: 'i' };
+function drawTraffic(g, ph, onPick) {
+  const tr = ph.traffic;
+  if (!tr || !tr.enabled) return;
+  L.tileLayer('api/tiles/flow/{z}/{x}/{y}.png?_=' + Math.floor(Date.now() / 180000), { opacity: 0.85, minZoom: 3, maxZoom: 18, attribution: 'Traffic © TomTom' }).addTo(g);
+  (tr.incidents || []).forEach((i) => {
+    if (i.line && i.closed) L.polyline(i.line, { color: C.warn, weight: 6, opacity: 0.85, dashArray: '2 8', lineCap: 'round', interactive: false }).addTo(g);
+    const m = L.marker([i.lat, i.lng], { icon: i.closed ? divIcon('m-closed', '<i></i>', [26, 26]) : divIcon('m-tt ' + i.kind, TT_GLYPH[i.kind] || 'i', [22, 22]) }).addTo(g);
+    if (onPick) m.on('click', () => onPick({
+      title: `${i.label}${i.roads.length ? ' · ' + i.roads.join(', ') : ''}`,
+      sub: [i.from && (i.to && i.to !== i.from ? `${i.from} → ${i.to}` : i.from), i.description, i.delayMin ? `${i.delayMin} min delay` : '',
+        i.start ? 'since ' + new Date(i.start).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '', i.end ? 'until ' + new Date(i.end).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : ''].filter(Boolean).join(' · '),
+      ids: ['traffic_live'],
+    }));
+  });
+}
+
 function drawOdin(g, ph, onPick) {
   const areas = (ph.power && ph.power.areas) || [];
   const max = Math.max(1, ...areas.map((a) => a.out));
@@ -180,10 +198,11 @@ const LAYER_SOURCES = { radar: ['nws_radar', 'nws_warn'], roads: ['a2roads', 'ne
 const LIVE_LEGEND = {
   radar: [['you', 'You are here'], ['place', 'Saved place'], ['radar', 'Live radar: green light rain → red/purple severe'], ['warnarea', 'Active NWS alert area (dashed)'], ['track', 'Storm path, next 60 min (estimate)'], ['lsr', 'NWS storm report (tap for details)']],
   roads: [['you', 'You are here'], ['lsr', 'NWS report: flooding, snow/ice, trees down'], ['post', 'Neighbor post (unverified)'], ['warnarea', 'Active NWS alert area']],
+  roadsTraffic: [['you', 'You are here'], ['flow', 'Traffic: green free-flowing → red/dark red slow'], ['closed', 'Road closed (TomTom)'], ['tt', 'Crash, roadworks or other incident'], ['lsr', 'NWS report: flooding, snow/ice, trees down'], ['post', 'Neighbor post (unverified)']],
   power: [['you', 'You are here'], ['odin', 'Customers without power, by county (ODIN)'], ['lsr', 'NWS report: power lines or wind damage'], ['post', 'Neighbor post about power (unverified)'], ['shelter', 'Public building (power not reported)']],
   shelters: [['you', 'You are here'], ['shelter', 'Public building: library, community center, town hall'], ['place', 'Saved place']],
 };
-const LIVE_LAYER_SOURCES = { radar: ['radar_live', 'nws_live', 'lsr_live'], roads: ['lsr_live', 'nws_live', 'posts_live', 'roads_live'], power: ['odin_live', 'lsr_live', 'posts_live', 'outages_live'], shelters: ['osm_live', 'ready_live'] };
+const LIVE_LAYER_SOURCES = { radar: ['radar_live', 'nws_live', 'lsr_live'], roads: ['traffic_live', 'lsr_live', 'nws_live', 'posts_live'], power: ['odin_live', 'lsr_live', 'posts_live', 'outages_live'], shelters: ['osm_live', 'ready_live'] };
 const ROAD_KINDS = ['flood', 'snow', 'damage', 'tornado'];
 const POWER_KINDS = ['damage', 'tornado'];
 
@@ -243,6 +262,8 @@ export function MapScreen({ query = {} }) {
     const near = (lst) => lst.filter((x) => (x.distanceMi ?? 99) <= 15).forEach((x) => extra.push(x.approx || [x.lat, x.lng]));
     if (live && layer === 'radar') near(ph.stormReports || []);
     if (live && layer === 'roads') {
+      drawTraffic(g, ph, pick);
+      near(((ph.traffic && ph.traffic.incidents) || []).filter((i) => i.closed).slice(0, 5));
       drawReports(g, ph, pick, (r) => r.road || ROAD_KINDS.includes(r.kind));
       drawPosts(g, ph, pick, ['Road', 'Flooding', 'Damage']);
       near((ph.stormReports || []).filter((r) => r.road || ROAD_KINDS.includes(r.kind)));
@@ -290,7 +311,7 @@ export function MapScreen({ query = {} }) {
 
   const live = ph.mode === 'live';
   const sel = route && (live ? (ph.publicPlaces || []) : SC.shelterPlaces).find((p) => p.id === route);
-  const legend = live ? LIVE_LEGEND : LEGEND;
+  const legend = live ? (ph.traffic && ph.traffic.enabled ? { ...LIVE_LEGEND, roads: LIVE_LEGEND.roadsTraffic } : LIVE_LEGEND) : LEGEND;
   const layerSources = live ? LIVE_LAYER_SOURCES : LAYER_SOURCES;
   const you = myPlaces(s)[hereId(s)];
   return html`<div class="map-screen">
@@ -306,7 +327,9 @@ export function MapScreen({ query = {} }) {
       <div class="map-full" ref=${ref}></div>
       ${ph.dontDrive ? html`<div class="map-dontdrive"><${Icon} n="car" size=${18} /> Don't drive during the warning${ph.banner.until ? ' (' + ph.banner.until + ')' : ''}</div>` : ''}
       ${live && layer === 'radar' && ph.stormTrack && ph.stormTrack.etas.length && !picked ? html`<div class="map-note warn">${ph.stormTrack.etas.map((e) => e.text).join(' · ')} (estimate from the NWS warning)</div>` : ''}
-      ${live && layer === 'roads' && !picked ? html`<div class="map-note">Showing NWS storm reports and neighbor posts. Live road closures & traffic: <a href="https://www.fhwa.dot.gov/trafficinfo/" target="_blank" rel="noopener">your state's 511</a>.</div>` : ''}
+      ${live && layer === 'roads' && !picked ? (ph.traffic && ph.traffic.updated
+        ? html`<div class="map-note">Live traffic & closures from TomTom, updated ${new Date(ph.traffic.updated * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}. Tap a sign for details. Official closures: <a href="https://www.fhwa.dot.gov/trafficinfo/" target="_blank" rel="noopener">511</a>.</div>`
+        : html`<div class="map-note">Showing NWS storm reports and neighbor posts. ${ph.traffic && ph.traffic.enabled ? 'Loading live traffic…' : html`Live road closures & traffic: <a href="https://www.fhwa.dot.gov/trafficinfo/" target="_blank" rel="noopener">your state's 511</a>.`}</div>`) : ''}
       ${live && layer === 'power' && !picked ? html`<${PowerNote} ph=${ph} />` : ''}
       ${s.offline ? html`<div class="map-offline">Offline: map tiles may be missing. Markers show the last update (${ph.clock}).</div>` : ''}
       ${picked ? html`<div class="map-pick card">

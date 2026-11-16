@@ -18,6 +18,7 @@ Serves the PWA in ./static and these JSON endpoints:
   POST /api/posts                  -> create a post (optional photo); DELETE /api/posts/<id> (author token)
   POST /api/posts/<id>/report      -> flag a post (hidden after 3 reports)
   GET  /photos/<id>.jpg            -> uploaded post photos
+  GET  /api/tiles/flow/z/x/y.png   -> TomTom traffic-flow tiles (proxied so the key stays on the server; traffic.py)
   GET  /p/<id>                     -> public page for one shared post (for the Share button)
   POST /api/me, GET /api/circle, POST /api/status, /api/circle/invite|accept|ping, DELETE /api/circle/<id>
   GET  /r/<code>, POST /api/r/<code> -> safety circle sync + one-tap reply page (circle.py)
@@ -538,7 +539,8 @@ class Handler(SimpleHTTPRequestHandler):
         u = urlparse(self.path)
         q = parse_qs(u.query)
         if u.path == "/api/health":
-            return self.send_json({"llm": bool(API_KEY), "model": MODEL, "spentUsd": spent_usd(), "budgetUsd": BUDGET_USD})
+            import traffic as TT
+            return self.send_json({"llm": bool(API_KEY), "model": MODEL, "spentUsd": spent_usd(), "budgetUsd": BUDGET_USD, "traffic": TT.usage()})
         if u.path == "/api/summary":
             return self.send_json(get_summary(q.get("phase", ["warning"])[0], refresh=q.get("refresh") == ["1"]))
         if u.path == "/api/nws":
@@ -589,6 +591,19 @@ class Handler(SimpleHTTPRequestHandler):
         if m:
             page = POSTS.post_page(m.group(1))
             return self.send_html(page) if page else self.send_html("<!doctype html><meta charset=utf-8><p>This post is no longer available.", 404)
+        m = re.match(r"^/api/tiles/flow/(\d+)/(\d+)/(\d+)\.png$", u.path)
+        if m:
+            import traffic as TT
+            body, code = TT.flow_tile(*(int(v) for v in m.groups()))
+            if not body:
+                return self.send_json({"error": "tile unavailable"}, code)
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "public, max-age=120")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if u.path.startswith("/photos/"):
             path = POSTS.photo_path(u.path[len("/photos/"):])
             if not path:

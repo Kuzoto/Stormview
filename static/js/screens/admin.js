@@ -91,6 +91,13 @@ export function Admin() {
     </section>
 
     <section class="card mt12">
+      <h2>Live traffic (TomTom)</h2>
+      <p class="small">${s.llm && s.llm.traffic ? (s.llm.traffic.enabled
+        ? html`${s.llm.traffic.lastError ? html`<strong class="warn-text">TomTom error: ${s.llm.traffic.lastError}</strong><br />` : ''}Key set · this month (${s.llm.traffic.month}): <strong>${s.llm.traffic.incidents}</strong> / ${s.llm.traffic.incidentCap} incident requests, <strong>${s.llm.traffic.tiles.toLocaleString()}</strong> / ${s.llm.traffic.tileCap.toLocaleString()} map tiles`
+        : 'Not connected: add TOMTOM_API_KEY to prototype/.env and restart the server.') : 'Checking…'}</p>
+    </section>
+
+    <section class="card mt12">
       <h2>Logs</h2>
       <button class="btn ghost sm" onClick=${() => { flush(); setTimeout(refreshLogs, 400); }}>Refresh list</button>
       <div class="log-list">${logs.length ? logs.map((p) => html`<div class="row between"><span>${p}</span><span><a class="link" href=${'api/logs/' + p + '.csv'}>CSV</a> · <a class="link" href=${'api/logs/' + p + '.jsonl'}>JSONL</a></span></div>`) : html`<p class="small muted">No logs yet.</p>`}</div>
