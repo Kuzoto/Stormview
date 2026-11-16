@@ -1,7 +1,7 @@
 // Screen 9 – "Forecast at My Places" (was "Additional Details", D7). Conditions at saved places (kept),
 // hourly rain/wind charts with a "now" marker, plus the real NWS hourly forecast (live data).
 import { html, useEffect, useRef, useState } from '../../vendor/preact-htm.js';
-import { SC, useStore, phase } from '../store.js';
+import { SC, useStore, phase, isLive, myPlaces, myOrder, hereId } from '../store.js';
 import { Icon, Header, Segmented, SourceChip, nav } from '../ui.js';
 import { log } from '../log.js';
 
@@ -17,7 +17,7 @@ function forecastFor(id, s) {
   return { data: SC.forecast.places[best], approx: SC.places[best].name };
 }
 
-function ChartBox({ labels, values, nowIdx, label, unit, color, max }) {
+function ChartBox({ labels, values, nowIdx, label, unit, color, max, type }) {
   const ref = useRef();
   useEffect(() => {
     const Chart = window.Chart;
@@ -34,17 +34,17 @@ function ChartBox({ labels, values, nowIdx, label, unit, color, max }) {
       },
     };
     const ch = new Chart(ref.current, {
-      type: unit === 'mph' ? 'line' : 'bar',
-      data: { labels, datasets: [{ label, data: values, backgroundColor: color + 'aa', borderColor: color, borderWidth: 2, tension: 0.35, pointRadius: 3, fill: unit === 'mph' }] },
+      type: type || (unit === 'mph' ? 'line' : 'bar'),
+      data: { labels, datasets: [{ label, data: values, backgroundColor: color + 'aa', borderColor: color, borderWidth: 2, tension: 0.35, pointRadius: 3, fill: (type || (unit === 'mph' ? 'line' : 'bar')) === 'line' && unit !== '°F' }] },
       options: {
         responsive: true, maintainAspectRatio: false, animation: false,
         plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.parsed.y} ${unit}` } } },
-        scales: { y: { beginAtZero: true, suggestedMax: max, title: { display: true, text: unit } }, x: { grid: { display: false } } },
+        scales: { y: { beginAtZero: unit !== '°F', suggestedMax: max, title: { display: true, text: unit } }, x: { grid: { display: false } } },
       },
       plugins: [nowLine],
     });
     return () => ch.destroy();
-  }, [JSON.stringify(values), nowIdx]);
+  }, [JSON.stringify(values), nowIdx, JSON.stringify(labels)]);
   return html`<div class="chart-box"><canvas ref=${ref} aria-label=${label + ' chart'}></canvas></div>`;
 }
 
@@ -65,8 +65,39 @@ function LiveNWS() {
   </details>`;
 }
 
+function LiveForecast() {
+  const s = useStore();
+  const ph = phase(s);
+  const places = myPlaces(s);
+  const order = myOrder(s);
+  const [place, setPlace] = useState(hereId(s));
+  const fc = ph.forecast || { hours: [], places: {} };
+  const d = fc.places[place];
+  const opts = order.map((id) => ({ value: id, label: places[id].short || places[id].name }));
+  return html`<div class="pad">
+    <${Header} title="Forecast at My Places" backTo="/more" />
+    ${opts.length > 1 ? html`<${Segmented} options=${opts} value=${place} onChange=${(v) => { log('forecast_place', v); setPlace(v); }} />` : ''}
+    <div class="small muted mt8"><${Icon} n="pin" size=${14} /> ${places[place] ? places[place].addr || places[place].name : ''}</div>
+    ${!d ? html`<section class="card mt12"><p class="small muted">${ph.loading ? 'Loading the live forecast…' : 'No NWS forecast for this place. The National Weather Service covers US locations only.'}</p></section>` : html`
+    <section class="card now-card mt12">
+      <div class="row between"><div><div class="small muted">Now · ${ph.clock}</div><div class="now-risk">${d.short[0]}</div></div>
+        <div class="now-nums"><div><strong>${d.temp[0]}°${d.unit}</strong></div><div><strong>${d.pop[0]}%</strong> chance of rain/snow</div><div><strong>${d.wind[0]}</strong> mph wind</div></div></div>
+      <div class="next-hours">${fc.hours.slice(0, 7).map((h, i) => html`<div class=${'nh' + (i === 0 ? ' now' : '')}><div class="tiny">${h}</div><div class="nh-risk">${d.temp[i]}° · ${d.short[i]}</div></div>`)}</div>
+      <div class="row gap8 mt8"><span class="tiny muted">Forecast${fc.updated ? ' updated ' + new Date(fc.updated).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}:</span><${SourceChip} ids=${['fcst_live']} claim=${'Forecast for ' + (places[place] ? places[place].name : '')} /></div>
+    </section>
+    <h2 class="mt16">Chance of rain or snow (%)</h2>
+    <${ChartBox} labels=${fc.hours} values=${d.pop} nowIdx=${0} label="Chance of precipitation" unit="%" color="#1565c0" max=${100} />
+    <h2 class="mt16">Temperature (°${d.unit})</h2>
+    <${ChartBox} labels=${fc.hours} values=${d.temp} nowIdx=${0} label="Temperature" unit="°F" color="#c62828" type="line" />
+    <h2 class="mt16">Wind (mph)</h2>
+    <${ChartBox} labels=${fc.hours} values=${d.wind} nowIdx=${0} label="Wind" unit="mph" color="#e65100" max=${30} />`}
+    <button class="btn ghost full mt12" onClick=${() => nav('/places')}><${Icon} n="edit" size=${16} /> Add or edit places</button>
+  </div>`;
+}
+
 export function Forecast() {
   const s = useStore();
+  if (isLive(s)) return html`<${LiveForecast} />`;
   const ph = phase(s);
   const [place, setPlace] = useState(SC.meta.userLocation);
   const { data, approx } = forecastFor(place, s);

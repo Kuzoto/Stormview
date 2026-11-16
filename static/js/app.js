@@ -1,5 +1,6 @@
 import { html, render, useState, useEffect } from '../vendor/preact-htm.js';
-import { loadScenario, useStore, set, get, phase } from './store.js';
+import { loadScenario, useStore, set, get, phase, isLive } from './store.js';
+import { startLive } from './live.js';
 import { log, flush } from './log.js';
 import { health } from './api.js';
 import { Icon, AlertBanner, SheetHost, Toasts, NotifBanner, Modal, nav, navTab } from './ui.js';
@@ -19,14 +20,14 @@ import { Admin } from './screens/admin.js';
 
 // ---------------------------------------------------------------- hash router with a back stack
 function parseHash() {
-  const h = location.hash.replace(/^#/, '') || '/lock';
+  const h = location.hash.replace(/^#/, '') || (isLive() ? '/home' : '/lock');
   const [path, qs] = h.split('?');
   return { path, parts: path.split('/').filter(Boolean), query: Object.fromEntries(new URLSearchParams(qs || '')) };
 }
 const stack = [];
 let lastDir = 'fade';
 function trackNav() {
-  const h = location.hash || '#/lock';
+  const h = location.hash || (isLive() ? '#/home' : '#/lock');
   if (window.__tabNav) { stack.length = 0; stack.push(h); window.__tabNav = false; lastDir = 'fade'; }
   else if (stack.length > 1 && stack[stack.length - 2] === h) { stack.pop(); lastDir = 'back'; }
   else if (stack[stack.length - 1] !== h) { stack.push(h); lastDir = stack.length > 1 ? 'push' : 'fade'; }
@@ -58,7 +59,8 @@ const TAB_OF = { impact: '/home', home: '/home', map: '/map', checkin: '/checkin
 function TabBar({ route }) {
   const s = useStore();
   const active = TAB_OF[route.parts[0]] || '/home';
-  const needsCheckin = s.checkin.status === 'none' && phase(s).level !== 'clear';
+  const lvl = phase(s).level;
+  const needsCheckin = s.checkin.status === 'none' && (isLive(s) ? lvl === 'warning' : lvl !== 'clear');
   return html`<nav class="tabbar" aria-label="Main">
     ${TABS.map((t) => html`<button class=${'tab' + (active === t.path ? ' on' : '') + (t.accent ? ' accent' : '')}
         aria-current=${active === t.path ? 'page' : undefined} onClick=${() => navTab(t.path)} data-log=${'tab ' + t.label}>
@@ -115,7 +117,11 @@ function Likert() {
 // ---------------------------------------------------------------- shell
 function StatusBar() {
   const s = useStore();
-  return html`<div class="fake-status" aria-hidden="true"><span>${phase(s).clock.replace(' PM', '')}</span>
+  const [, tick] = useState(0);
+  useEffect(() => { const i = setInterval(() => tick((x) => x + 1), 20000); return () => clearInterval(i); }, []);
+  // Live mode shows the real time; the scenario shows its simulated clock.
+  const clk = isLive(s) ? new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : phase(s).clock;
+  return html`<div class="fake-status" aria-hidden="true"><span>${clk.replace(/ [AP]M$/, '')}</span>
     <span class="fs-r">${s.offline ? 'No Service' : '●●●● 5G'} ▮</span></div>`;
 }
 
@@ -166,6 +172,7 @@ function App() {
   document.documentElement.classList.toggle('standalone', !!standalone);
   render(html`<${App} />`, document.getElementById('app'));
   health();
+  if (isLive()) startLive();
   window.addEventListener('online', () => { if (get().offline === 'auto') set({ offline: false }); });
   window.addEventListener('offline', () => set({ offline: 'auto' }));
   if ('serviceWorker' in navigator && window.isSecureContext) {

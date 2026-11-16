@@ -1,6 +1,6 @@
 // Shared UI components.
 import { html, useState, useEffect } from '../vendor/preact-htm.js';
-import { SC, useStore, set, get, phase, openSheet, closeSheet, placeName } from './store.js';
+import { SC, useStore, set, get, phase, openSheet, closeSheet, placeName, isLive, hereId } from './store.js';
 import { log } from './log.js';
 
 export const APP_NAME = 'StormWise';
@@ -88,7 +88,7 @@ export function SourceChip({ ids = [], claim = '', light = false }) {
   const off = ids.filter((i) => SC.sources[i] && SC.sources[i].kind === 'official');
   const onlyCommunity = off.length === 0;
   const first = off[0] || ids[0];
-  const label = SHORT[first] || first;
+  const label = (SC.sources[first] && SC.sources[first].short) || SHORT[first] || first;
   const more = ids.length - 1;
   const open = (e) => {
     e.stopPropagation();
@@ -131,12 +131,13 @@ export function AlertBanner() {
   const s = useStore();
   const ph = phase(s);
   const b = ph.banner;
-  const cls = s.offline ? 'offline' : ph.level;
+  const cls = s.offline || ph.loading ? 'offline' : ph.level;
+  const live = isLive(s);
   return html`<div class="alert-wrap">
-    ${s.offline ? html`<div class="offline-strip" role="status"><${Icon} n="wifioff" size=${16} /> No connection · showing the alert received ${SC.phases[0].timeline[0].time}, last updated ${ph.clock}</div>` : ''}
+    ${s.offline ? html`<div class="offline-strip" role="status"><${Icon} n="wifioff" size=${16} /> No connection · ${live ? (s.live ? 'showing alerts as of ' + ph.clock : 'no alerts saved yet') : 'showing the alert received ' + SC.phases[0].timeline[0].time + ', last updated ' + ph.clock}</div>` : ''}
     <div class=${'alert-banner ' + cls} role="button" tabindex="0" data-log="alert banner"
       onClick=${() => openSheet({ type: 'alert' })}>
-      <div class="ab-icon"><${Icon} n=${ph.level === 'clear' ? 'checkc' : 'alert'} size=${26} stroke=${2.2} /></div>
+      <div class="ab-icon"><${Icon} n=${ph.loading ? 'clock' : ph.level === 'clear' ? 'checkc' : 'alert'} size=${26} stroke=${2.2} /></div>
       <div class="grow">
         <div class="ab-title">${b.title} <span class="ab-level">${b.levelLabel}</span></div>
         <div class="ab-sub">${b.area}${b.until ? ' · ' + b.until : ''}</div>
@@ -154,7 +155,9 @@ export function AlertSheet() {
     <h3 class="mt8">${ph.banner.title}</h3>
     <div class="muted small">${ph.banner.area}${ph.banner.until ? ' · ' + ph.banner.until : ''} · as of ${ph.clock}</div>
     <div class="callout mt12"><strong>${ph.action}</strong></div>
-    <p class="mt12">${ph.alertText}</p>
+    ${String(ph.alertText || '').split(/\n\n+/).map((t) => html`<p class="mt12">${t}</p>`)}
+    ${isLive(s) && ph.alerts && ph.alerts.length > 1 ? html`<div class="mt12"><strong>All active alerts for your places</strong>
+      ${ph.alerts.map((a) => html`<div class=${'live-alert ' + a.level}><strong>${a.event}</strong><div class="small muted">${a.places.map((id) => placeName(id, s)).join(', ')} · ${a.sender}</div></div>`)}</div>` : ''}
     <div class="row gap8 mt8"><span class="muted small">Source:</span><${SourceChip} ids=${ph.banner.sourceIds} claim=${ph.banner.title} /></div>
     <div class="watchwarn mt12">
       <div><strong>Watch</strong> = conditions could produce a tornado. Be ready.</div>
@@ -183,7 +186,7 @@ export const Dot = ({ tone }) => html`<span class=${'dot ' + tone} aria-label=${
 
 export function PlaceTag({ id }) {
   const s = useStore();
-  const here = SC.meta.userLocation === id;
+  const here = hereId(s) === id;
   return html`<span class="place-tag">${placeName(id, s)}${here ? html` <em>· you</em>` : ''}</span>`;
 }
 

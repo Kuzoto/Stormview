@@ -11,6 +11,13 @@ Serves the PWA in ./static and these JSON endpoints:
   POST /api/chat                   -> WeatherBoy answer grounded in scenario.json
   GET  /api/summary?phase=<id>     -> AI-written personal summary for a phase (cached)
   GET  /api/nws                    -> live NWS hourly forecast for Ann Arbor (real data)
+  POST /api/live                   -> LIVE mode: real NWS alerts/forecast for the user's places (live.py)
+  POST /api/live/summary           -> AI summary of the live data (cached per data fingerprint)
+  GET  /api/geocode?q=             -> address / city search for My Places
+  GET  /api/posts?lat=&lng=        -> shared Neighbor Reports near a point (posts.py)
+  POST /api/posts                  -> create a post (optional photo); DELETE /api/posts/<id> (author token)
+  POST /api/posts/<id>/report      -> flag a post (hidden after 3 reports)
+  GET  /photos/<id>.jpg            -> uploaded post photos
   POST /api/log                    -> append study events to logs/<participant>.jsonl
   GET  /api/logs                   -> list participants with logs
   GET  /api/logs/<pid>.csv|.jsonl  -> download a participant's events
@@ -31,6 +38,9 @@ import urllib.error
 import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
+
+import live as LIVE
+import posts as POSTS
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(ROOT, "static")
@@ -64,6 +74,7 @@ PRICE_IN = float(os.environ.get("PRICE_IN_PER_M", "0.40"))     # USD per 1M inpu
 PRICE_OUT = float(os.environ.get("PRICE_OUT_PER_M", "1.60"))   # USD per 1M output tokens
 RATE_PER_MIN = int(os.environ.get("RATE_PER_MIN", "30"))
 NWS_UA = os.environ.get("NWS_USER_AGENT", "cse593-weather-prototype (student project)")
+LIVE.UA = NWS_UA
 
 
 def load_scenario():
@@ -209,7 +220,8 @@ SUMMARY_FMT = (
     "for Home, Work or Mom's house. No bullets, no bold. severity = null. followUps = []."
 )
 
-RESPONSE_SCHEMA = {
+def response_schema(source_ids):
+    return {
     "type": "json_schema",
     "json_schema": {
         "name": "weatherboy_reply",
@@ -219,14 +231,29 @@ RESPONSE_SCHEMA = {
             "additionalProperties": False,
             "properties": {
                 "answer": {"type": "string"},
-                "sourceIds": {"type": "array", "items": {"type": "string", "enum": SOURCE_IDS}},
+                "sourceIds": {"type": "array", "items": {"type": "string", "enum": list(source_ids)}},
                 "severity": {"type": ["integer", "null"]},
                 "followUps": {"type": "array", "items": {"type": "string"}},
             },
             "required": ["answer", "sourceIds", "severity", "followUps"],
         },
     },
-}
+    }
+
+
+RESPONSE_SCHEMA = response_schema(SOURCE_IDS)
+LIVE_SCHEMA = response_schema(LIVE.LIVE_SOURCES.keys())
+LIVE_GUIDE = [
+    "Bottom tabs on every screen: Home, Map, Check-In, Ask/Help (this chat), More.",
+    "The colored banner at the top of every screen shows the most important active alert and when it ends. Tap it for the full official alert text.",
+    "Every claim has a small source chip (check mark for official, ? for community data). Tap it to see the source. More > Sources lists every source.",
+    "Home > 'What this means for you' cards (Power, Water, Roads, Shelter) open details for each saved place.",
+    "Home > Updates lists the alerts issued and the latest forecast outlook, newest last.",
+    "Shelter card > what to do now, plus public buildings nearby (from OpenStreetMap, not official shelters) with a Directions button.",
+    "Map tab > choose one layer at the top (Radar, Roads, Power, Shelters). Radar is live; the dashed red outline is an active NWS warning area. The legend explains every symbol.",
+    "Check-In tab > tap 'I'm safe' or 'I need help', then confirm; it opens your phone's share sheet or text messages to send it to your people. '+ Add person' saves a contact.",
+    "More > Forecast at My Places shows the live hourly temperature, chance of rain/snow and wind. More > My Places lets you add places by address or city; 'My location' uses the phone's location.",
+]
 
 
 def phase_by_id(pid):
@@ -257,7 +284,7 @@ def build_system(phase, user_state, max_words=90):
     ) + "\nIn-building shelter steps: " + json.dumps(SCENARIO["inBuilding"])
 
 
-def openai_chat(messages, max_tokens=500):
+def openai_chat(messages, max_tokens=500, schema=None, valid_ids=None):
     """Call OpenAI Chat Completions with structured output. Returns (dict, error)."""
     if not API_KEY:
         return None, "no_key"
@@ -269,7 +296,7 @@ def openai_chat(messages, max_tokens=500):
     body = {
         "model": MODEL,
         "messages": messages,
-        "response_format": RESPONSE_SCHEMA,
+        "response_format": schema or RESPONSE_SCHEMA,
         "max_completion_tokens": max_tokens * (4 if is_reasoning else 1),
     }
     if REASONING_EFFORT and is_reasoning:
@@ -300,7 +327,8 @@ def openai_chat(messages, max_tokens=500):
     except Exception as e:
         sys.stderr.write("[openai] bad content %r\n" % e)
         return None, "parse"
-    out["sourceIds"] = [s for s in out.get("sourceIds", []) if s in SCENARIO["sources"]]
+    valid = valid_ids if valid_ids is not None else SCENARIO["sources"]
+    out["sourceIds"] = [s for s in out.get("sourceIds", []) if s in valid]
     out["followUps"] = [f for f in out.get("followUps", []) if isinstance(f, str)][:3]
     sev = out.get("severity")
     out["severity"] = sev if isinstance(sev, int) and 1 <= sev <= 5 else None
@@ -346,7 +374,33 @@ def get_summary(phase_id, refresh=False):
     return out
 
 
-# --------------------------------------------------------------------------- live NWS
+# --------------------------------------------------------------------------- live mode
+def live_public(live):
+    return {k: v for k, v in live.items() if k != "_places"}
+
+
+_live_summary = {}
+
+
+def get_live_summary(places, refresh=False, tz=None):
+    live = LIVE.build_live(places, "here", tz)
+    key = "%s|%s|%s" % (MODEL, live["digest"], ",".join(p["name"] for p in live["_places"]))
+    if not refresh and key in _live_summary:
+        return dict(_live_summary[key], cached=True, digest=live["digest"])
+    msgs = [{"role": "system", "content": LIVE.build_system_live(live, {}, LIVE_GUIDE, max_words=45)},
+            {"role": "user", "content": SUMMARY_FMT.replace("for Home, Work or Mom's house", "for the user's saved places")}]
+    out, err = openai_chat(msgs, max_tokens=200, schema=LIVE_SCHEMA, valid_ids=LIVE.LIVE_SOURCES)
+    if err:
+        return {"answer": live["summaryFallback"], "sourceIds": live["banner"]["sourceIds"], "fallback": True, "error": err, "digest": live["digest"]}
+    out = {"answer": out["answer"], "sourceIds": out["sourceIds"] or live["banner"]["sourceIds"]}
+    with LOCK:
+        if len(_live_summary) > 500:
+            _live_summary.clear()
+        _live_summary[key] = out
+    return dict(out, digest=live["digest"])
+
+
+# --------------------------------------------------------------------------- live NWS (Forecast screen, scenario mode)
 _nws = {"t": 0, "data": None}
 
 
@@ -451,7 +505,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def read_body(self):
         n = int(self.headers.get("Content-Length") or 0)
-        if n > 2_000_000:
+        if n > (5_000_000 if urlparse(self.path).path == "/api/posts" else 2_000_000):
             raise ValueError("too large")
         return json.loads(self.rfile.read(n) or b"{}")
 
@@ -467,6 +521,11 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(get_nws())
             except Exception as e:
                 return self.send_json({"error": str(e)}, 502)
+        if u.path == "/api/geocode":
+            try:
+                return self.send_json({"results": LIVE.geocode(q.get("q", [""])[0])})
+            except Exception as e:
+                return self.send_json({"results": [], "error": str(e)}, 502)
         if u.path == "/api/logs":
             files = sorted(f[:-6] for f in os.listdir(LOGS) if f.endswith(".jsonl"))
             return self.send_json({"participants": files})
@@ -487,9 +546,36 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if u.path == "/api/posts":
+            try:
+                lat, lng = float(q["lat"][0]), float(q["lng"][0])
+            except (KeyError, ValueError):
+                return self.send_json({"error": "lat and lng required"}, 400)
+            return self.send_json({"posts": POSTS.nearby(lat, lng)})
+        if u.path.startswith("/photos/"):
+            path = POSTS.photo_path(u.path[len("/photos/"):])
+            if not path:
+                return self.send_json({"error": "not found"}, 404)
+            body = open(path, "rb").read()
+            self.send_response(200)
+            self.send_header("Content-Type", {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}[path.rsplit(".", 1)[1]])
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "public, max-age=604800, immutable")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if u.path.startswith("/api/"):
             return self.send_json({"error": "not found"}, 404)
         return super().do_GET()
+
+    def do_DELETE(self):
+        u = urlparse(self.path)
+        m = re.match(r"^/api/posts/([0-9a-f]{16})$", u.path)
+        if not m:
+            return self.send_json({"error": "not found"}, 404)
+        ok = POSTS.delete(m.group(1), self.headers.get("X-Post-Token"))
+        return self.send_json({"ok": ok}, 200 if ok else 403)
 
     def do_POST(self):
         u = urlparse(self.path)
@@ -498,9 +584,56 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception:
             return self.send_json({"error": "bad json"}, 400)
 
+        if u.path == "/api/posts":
+            try:
+                return self.send_json(POSTS.create(body, self.client_address[0]))
+            except PermissionError as e:
+                return self.send_json({"error": str(e)}, 429)
+            except ValueError as e:
+                return self.send_json({"error": str(e)}, 400)
+        m = re.match(r"^/api/posts/([0-9a-f]{16})/report$", u.path)
+        if m:
+            return self.send_json({"ok": POSTS.report(m.group(1), body.get("device"))})
+
         if u.path == "/api/log":
             n = append_events(body.get("events", []))
             return self.send_json({"ok": True, "n": n})
+
+        if u.path == "/api/live":
+            try:
+                return self.send_json(live_public(LIVE.build_live(body.get("places"), body.get("here", "here"), body.get("tz"))))
+            except Exception as e:
+                sys.stderr.write("[live] %r\n" % e)
+                return self.send_json({"error": "live data unavailable: %s" % type(e).__name__}, 502)
+
+        if u.path == "/api/live/summary":
+            try:
+                return self.send_json(get_live_summary(body.get("places"), refresh=bool(body.get("refresh")), tz=body.get("tz")))
+            except Exception as e:
+                sys.stderr.write("[live summary] %r\n" % e)
+                return self.send_json({"error": str(e)}, 502)
+
+        if u.path == "/api/chat" and body.get("mode") == "live":
+            prompt_id = body.get("promptId")
+            history = [m for m in body.get("messages", []) if m.get("role") in ("user", "assistant")][-8:]
+            history = [{"role": m["role"], "content": str(m.get("content", ""))[:1500]} for m in history]
+            if not history:
+                return self.send_json({"error": "no messages"}, 400)
+            try:
+                live = LIVE.build_live(body.get("places"), "here", body.get("tz"))
+            except Exception as e:
+                return self.send_json({"answer": "I couldn't load the live weather data just now (%s). Check weather.gov for official alerts." % type(e).__name__,
+                                       "sourceIds": ["nws_live"], "severity": None, "followUps": [], "fallback": True})
+            system = LIVE.build_system_live(live, body.get("userState"), LIVE_GUIDE)
+            fmt = LIVE.LIVE_FMT.get(prompt_id) or (PROMPTS[prompt_id]["fmt"] if prompt_id in PROMPTS else None)
+            if fmt:
+                system += "\n\nFORMAT FOR THIS QUESTION:\n" + fmt
+            out, err = openai_chat([{"role": "system", "content": system}] + history,
+                                   max_tokens=450 if prompt_id in ("power_water",) else 380,
+                                   schema=LIVE_SCHEMA, valid_ids=LIVE.LIVE_SOURCES)
+            if err:
+                return self.send_json(fallback(live, err))
+            return self.send_json(out)
 
         if u.path == "/api/chat":
             phase = phase_by_id(body.get("phase", "warning"))

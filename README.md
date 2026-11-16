@@ -1,6 +1,11 @@
 # StormWise: functional prototype (CSE 593, Group 2)
 
-An installable phone web app (PWA) for the tornado-warning scenario. The server runs on any laptop, and phones open the link and **Add to Home Screen**. After that it launches full-screen from its own icon like a native iOS/Android app, with a tab bar, bottom sheets, notifications, and offline support.
+An installable phone web app (PWA). The server runs on any laptop, and phones open the link and **Add to Home Screen**. After that it launches full-screen from its own icon like a native iOS/Android app, with a tab bar, bottom sheets, notifications, and offline support.
+
+It has two modes:
+
+- **Live weather (default):** real National Weather Service alerts, warning areas, hourly forecast and radar for the phone's location and the user's saved places.
+- **Practice scenario:** the scripted 7:40 PM tornado warning used in the study. The researcher panel switches to it, and **Start** always does.
 
 > "StormWise" is a placeholder name (set in `static/js/ui.js` → `APP_NAME`, `index.html`, `manifest.webmanifest`).
 
@@ -30,6 +35,29 @@ The server prints a `Phone:` URL (your LAN IP). Open it on a phone connected to 
 
 It then opens without browser chrome.
 
+## Live mode: what's real
+
+| Shown in the app | Source | Notes |
+|---|---|---|
+| Alerts (watches, warnings, advisories), banner, timeline, warning polygons on the map | NWS `api.weather.gov` | Refreshed every 2 min while the app is open, and when it returns to the foreground. US only. |
+| Hourly forecast (temperature, rain/snow chance, wind) | NWS | Forecast at My Places, plus the forecast line in Updates |
+| Radar | NEXRAD mosaic tiles via Iowa Environmental Mesonet | Map → Radar |
+| Public buildings near your places (libraries, community centers, town halls) | OpenStreetMap (Nominatim) | Labeled *not official shelters*. Looked up in the background and cached for a week. |
+| My location | Phone GPS, rounded to ~100 m | Needs **https** (the tunnel) or localhost. Otherwise the app uses Ann Arbor and says so. You can also set it by hand in My Places. |
+| Add a place by address or city | US Census geocoder, Open-Meteo | More → My Places |
+| Power, water, road impact cards | **Derived** from NWS alerts and the forecast (e.g. wind/ice → "Outages possible") | No free public outage, boil-water or road-closure feed exists, so these cards link to the right official source instead of inventing data. |
+| Check-In | Your phone's share sheet / text messages | Contacts are saved on the phone only. Replies come back as normal texts. |
+| Neighbor Reports | Posts from other app users, stored on the laptop running the server | Shared with everyone within ~15 miles who uses the same link, for 7 days, marked unverified. Optional photo. See below. |
+
+All the live services are free and need no API keys. In live mode, WeatherBoy is grounded in the live data and told that it has no outage, water or closure data.
+
+### Neighbor Reports (shared posts)
+
+- Anyone can post text plus an optional photo, with a display name and no account. Posts are saved in `userdata/` (git-ignored) on the machine running `server.py`, so **only phones using the same server/link see each other's posts**.
+- **Privacy:** the poster's location is rounded to ~100 m and only the distance is shown ("0.4 mi away"). Photos are resized (max 1280 px) and re-encoded on the phone, which removes EXIF data including GPS. Posting needs a real location, either the phone's or one set by hand.
+- **Moderation:** authors can delete their own posts (a secret token saved on their phone). Anyone can **Report** a post: it hides it for them, and 3 reports hide it for everyone. Limited to 6 posts a minute per device/network, and posts expire after 7 days. To wipe everything, stop the server and delete `userdata/`.
+- In the **practice scenario**, posts (and photos) stay on the phone, alongside the scripted posts, so the study is unaffected.
+
 ## OpenAI / WeatherBoy
 
 - Key: `OPENAI_API_KEY` in `.env`. Model: `OPENAI_MODEL` (default **gpt-4.1-mini**, which is fast and cheap, a good fit for a 60-second task. `gpt-5-mini` also works but is slower.)
@@ -54,10 +82,12 @@ It then opens without browser chrome.
 
 1. Open the **researcher panel**: add `?admin=1` to the URL, or **long-press the "StormWise" title** on Home (or "More").
 2. Enter the participant ID (e.g. `P01`) and the condition order.
-3. Tap **Start on Home**. This resets the app (check-in, chat, posts, phase = 7:40 PM warning), opens Home, and starts the **60 s** timer. The countdown is hidden by default; there's a toggle to show it.
+3. Tap **Start on Home**. This **switches to the practice scenario** (so every participant sees the same storm, whatever the real weather is), resets it (check-in, chat, posts, phase = 7:40 PM warning), opens Home, and starts the **60 s** timer. The countdown is hidden by default; there's a toggle to show it. A purple "Practice scenario · not real weather" strip shows on Home.
 4. When time is up, the participant answers **"How safe do you feel?"** (the completion criterion) and **"How informed do you feel about power, water and shelter?"** on 1–5 scales. Both are logged.
 5. NASA-TLX stays in the Google Form.
 6. Logs: the researcher panel → Logs → **CSV/JSONL** per participant (`logs/<pid>.jsonl`). Every screen view, tap, source-chip open, chat question/answer (with latency), map layer change, check-in action and Likert answer is timestamped, with `taskElapsedMs` measured from task start.
+
+Afterwards, use **Mode → Live weather** in the panel to return the phone to real data (this also stops any running timer).
 
 Other panel controls: phase (7:40 PM warning → 8:05 PM storm overhead → 8:55 PM danger has passed, for R4), **simulate no connection** (offline state), reset, show the lock screen.
 
@@ -80,7 +110,9 @@ Other panel controls: phase (7:40 PM warning → 8:05 PM storm overhead → 8:55
 
 ```
 prototype/
-  server.py               Python stdlib server: static files, /api/chat, /api/summary, /api/nws, /api/log(s)
+  server.py               Python stdlib server: static files, /api/chat, /api/summary, /api/live, /api/geocode, /api/log(s)
+  live.py                 Live mode: NWS alerts/forecast, OpenStreetMap public buildings, geocoding, live AI prompt
+  posts.py                Shared Neighbor Reports: posts + photos in userdata/ (git-ignored), delete/report
   .env.example            OpenAI settings template (copy to .env)
   tunnel.sh               HTTPS tunnel for phones (cloudflared quick tunnel)
   static/
@@ -92,6 +124,7 @@ prototype/
     js/store.js           state (localStorage), toasts, notifications
     js/ui.js              banner, source chips/sheet, icons, header, modal, markdown-lite
     js/api.js  js/log.js  server calls; event logging
+    js/live.js            live mode: phone location, 2-minute refresh of /api/live
     js/screens/*.js       lock, home, impact, map, ask, checkin, more, forecast, reports, sources, places, admin
   logs/                   per-participant event logs, LLM spend, summary cache (git-ignored)
 ```
@@ -100,8 +133,9 @@ To change the scenario (times, outages, places, people, posts), edit `static/dat
 
 ## Known limitations (for §8.3)
 
-- All storm, outage, water, road, shelter, people and post data is **scripted**. Agency names show who would supply each fact. DTE and the City have no public APIs, and scraping Facebook/Nextdoor violates their terms.
+- **Practice scenario:** all storm, outage, water, road, shelter, people and post data is **scripted**. Agency names show who would supply each fact.
+- **Live mode:** alerts, forecast and radar are real, but power, water and road status are only weather-based risk. DTE and cities publish no public outage, boil-water or closure APIs, and scraping Facebook/Nextdoor violates their terms. Neighbor Reports is unmoderated beyond reports/deletes and only reaches people using the same server. NWS covers US locations only. Public buildings from OpenStreetMap are not verified shelters.
 - WeatherBoy can still word things imperfectly. It is restricted to the scenario data and cites sources, but it is not an official warning channel.
-- Lock-screen and circle notifications are simulated inside the app. A web app can't post real lock-screen notifications without push infrastructure.
+- Lock-screen and circle notifications are simulated inside the app (the scenario's lock screen; live mode shows the current alert there). A web app can't post real lock-screen notifications without push infrastructure.
 - Routes are hand-drawn polylines, not turn-by-turn routing.
 - App state is stored per device (localStorage). Each phone keeps its own state, which **Start** in the researcher panel resets.

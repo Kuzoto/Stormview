@@ -7,8 +7,15 @@ export let SC = null; // scenario.json, loaded once
 const listeners = new Set();
 let state = null;
 
+export const DEFAULT_HERE = { name: 'My location', short: 'You', addr: 'Finding your location…', lat: 42.2808, lng: -83.7430, auto: true, approx: true };
+
 function initialState() {
   return {
+    mode: 'live', // 'live' = real NWS data for the user's places (default) · 'scenario' = scripted practice storm (study)
+    live: null, // last live payload from /api/live (kept for offline)
+    livePlaces: { here: { ...DEFAULT_HERE } },
+    liveOrder: ['here'],
+    liveCircle: [],
     phase: 'warning',
     offline: false,
     checkin: { status: 'none', time: null, sentTo: [], shareLocation: false },
@@ -23,14 +30,16 @@ function initialState() {
   };
 }
 
-const TRANSIENT = ['toasts', 'notif', 'sheet', 'summaries', 'llm', 'likertOpen'];
+const TRANSIENT = ['toasts', 'notif', 'sheet', 'summaries', 'llm', 'likertOpen', 'liveLoading', 'liveError'];
+// Persisted live-mode extras: postName, myPosts {id: deleteToken}, hiddenPosts [ids], deviceId.
 
 export async function loadScenario() {
   const r = await fetch('data/scenario.json', { cache: 'no-cache' });
   SC = await r.json();
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { saved = null; }
-  state = { ...initialState(), ...(saved || {}), toasts: [], notif: null, sheet: null, summaries: {}, llm: null, likertOpen: false };
+  state = { ...initialState(), ...(saved || {}), toasts: [], notif: null, sheet: null, summaries: {}, llm: null, likertOpen: false, liveLoading: false, liveError: null };
+  Object.assign(SC.sources, SC.liveSources || {}); // live-mode sources (ids end in _live)
 }
 
 function persist() {
@@ -58,10 +67,12 @@ export function useStore(sel = (s) => s) {
   return v;
 }
 
-/** Reset everything a participant could have changed (keeps study settings). */
+/** Reset everything a participant could have changed in the scenario (keeps study settings and the
+ *  user's own live-mode places, contacts and mode). */
 export function resetApp(keepStudy = true) {
   const study = state.study;
-  state = { ...initialState(), toasts: [], notif: null, sheet: null, summaries: state.summaries, llm: state.llm, likertOpen: false };
+  const keep = { mode: state.mode, live: state.live, livePlaces: state.livePlaces, liveOrder: state.liveOrder, liveCircle: state.liveCircle };
+  state = { ...initialState(), ...keep, toasts: [], notif: null, sheet: null, summaries: state.summaries, llm: state.llm, likertOpen: false, liveLoading: false, liveError: null };
   if (keepStudy) state.study = study;
   pendingTimers.forEach(clearTimeout);
   pendingTimers.length = 0;
@@ -70,10 +81,40 @@ export function resetApp(keepStudy = true) {
 }
 
 // ---- helpers
-export const phase = (s = state) => SC.phases.find((p) => p.id === s.phase) || SC.phases[0];
-export const phaseIndex = (s = state) => Math.max(0, SC.phases.findIndex((p) => p.id === s.phase));
+export const isLive = (s = state) => s.mode === 'live';
+
+const tone = (headline, sub) => ({ tone: 'ok', headline, sub, rows: [] });
+function liveLoading(s) {
+  const now = new Date();
+  return {
+    id: 'live', mode: 'live', label: 'Live', level: 'clear', loading: true,
+    clock: now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+    date: now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }),
+    banner: { title: s.liveError ? 'Live alerts unavailable' : 'Checking live alerts…', levelLabel: 'Live', area: 'National Weather Service', until: '', sourceIds: ['nws_live'] },
+    action: s.liveError ? 'Couldn\'t reach the weather service. Check weather.gov for official alerts.' : 'Loading the latest official alerts for your places…',
+    dontDrive: false, alertText: s.liveError || 'Loading…', severity: null, timeline: [],
+    impacts: { power: tone('Loading…', ''), water: tone('Loading…', ''), roads: tone('Loading…', ''), shelter: { ...tone('Loading…', ''), now: 'here' } },
+    storm: null, warnPolygon: null, warnPolygons: [], outages: [], roadMarks: [], routeHome: null, publicPlaces: [],
+    forecast: { hours: [], places: {} }, summaryFallback: '', digest: 'loading', alerts: [],
+  };
+}
+export const phase = (s = state) => (isLive(s) ? s.live || liveLoading(s) : SC.phases.find((p) => p.id === s.phase) || SC.phases[0]);
+export const phaseIndex = (s = state) => (isLive(s) ? 0 : Math.max(0, SC.phases.findIndex((p) => p.id === s.phase)));
 export const clock = (s = state) => phase(s).clock;
-export const placeName = (id, s = state) => (s.places[id] && s.places[id].name) || id;
+/** The active set of places: the user's real places in live mode, the scripted ones in the scenario. */
+export const myPlaces = (s = state) => (isLive(s) ? s.livePlaces : s.places);
+export const myOrder = (s = state) => (isLive(s) ? s.liveOrder : s.placeOrder).filter((id) => myPlaces(s)[id]);
+export const hereId = (s = state) => (isLive(s) ? 'here' : SC.meta.userLocation);
+export const placeName = (id, s = state) => (myPlaces(s)[id] && myPlaces(s)[id].name) || id;
+export const myCircle = (s = state) => (isLive(s) ? s.liveCircle : s.circle);
+/** Update the active places (live or scenario) with fn({places, order}) -> {places, order}. */
+export function setPlaces(fn) {
+  set((st) => {
+    const live = isLive(st);
+    const r = fn({ places: live ? st.livePlaces : st.places, order: live ? st.liveOrder : st.placeOrder });
+    return live ? { livePlaces: r.places, liveOrder: r.order } : { places: r.places, placeOrder: r.order };
+  });
+}
 
 export function toast(text, tone = 'ok', ms = 3200) {
   const id = Math.random().toString(36).slice(2);

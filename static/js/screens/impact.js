@@ -1,7 +1,7 @@
 // Impact detail (Power / Water / Roads / Shelter): per-place status with sources (D1),
 // specific shelter guidance + public places with power & water + routes (D4).
 import { html, useState } from '../../vendor/preact-htm.js';
-import { SC, useStore, phase } from '../store.js';
+import { SC, useStore, phase, isLive, myPlaces, myOrder, hereId } from '../store.js';
 import { Icon, Header, SourceChip, Dot, PlaceTag, Segmented, nav, navTab } from '../ui.js';
 import { log } from '../log.js';
 
@@ -16,9 +16,34 @@ function Rows({ rows }) {
   </div>`)}</div>`;
 }
 
+export const directionsUrl = (from, to) =>
+  `https://www.google.com/maps/dir/?api=1${from && from.lat != null ? `&origin=${from.lat},${from.lng}` : ''}&destination=${to.lat},${to.lng}&travelmode=walking`;
+
 export function PublicPlaces({ near, filter }) {
   const s = useStore();
-  const warningActive = phase(s).level !== 'clear';
+  const ph = phase(s);
+  const live = isLive(s);
+  const warningActive = ph.level !== 'clear';
+  if (live) {
+    const all = ph.publicPlaces || [];
+    const list = all.filter((p) => !near || p.near === near).slice(0, near ? 4 : 6);
+    const from = myPlaces(s)[near || hereId(s)];
+    if (!list.length) return html`<p class="small muted">${ph.publicPending || ph.loading ? 'Looking up public buildings nearby…' : 'No public buildings found nearby in OpenStreetMap.'}</p>`;
+    return html`<div class="places-list">${list.map((p) => html`<div class="pp">
+      <div class="pp-top"><strong>${p.name}</strong><${SourceChip} ids=${p.sourceIds} claim=${p.name + ': ' + p.hours} /></div>
+      <div class="pp-tags">
+        <span class="tag">${p.kind}</span>
+        <span class="tag"><${Icon} n="clock" size=${13} /> ${p.hours}</span>
+        <span class="tag unk"><${Icon} n="bolt" size=${13} /> Power not reported</span>
+      </div>
+      <div class="small muted">${p.distance} · ${p.walk} · not an official shelter, call ahead</div>
+      <div class="row gap8 mt8">
+        <a class="btn ghost sm" href=${directionsUrl(from, p)} target="_blank" rel="noopener" onClick=${() => log('directions_open', p.id)}><${Icon} n="route" size=${16} /> Directions${warningActive && ph.dontDrive ? ' (after the warning)' : ''}</a>
+        <button class="btn ghost sm" onClick=${() => { log('route_open', p.id); nav('/map?layer=shelters&route=' + p.id); }}><${Icon} n="map" size=${16} /> Map</button>
+        ${p.phone ? html`<a class="btn ghost sm" href=${'tel:' + p.phone}>Call</a>` : ''}
+      </div>
+    </div>`)}</div>`;
+  }
   const list = SC.shelterPlaces.filter((p) => (!near || p.near === near) && (!filter || p[filter]));
   return html`<div class="places-list">${list.map((p) => html`<div class="pp">
     <div class="pp-top"><strong>${p.name}</strong><${SourceChip} ids=${p.sourceIds} claim=${p.name + ': ' + p.hours} /></div>
@@ -33,8 +58,46 @@ export function PublicPlaces({ near, filter }) {
   </div>`)}</div>`;
 }
 
+// Generic, official (Ready.gov / NWS) guidance used in live mode, by hazard type (we don't know the building).
+const LIVE_GUIDE = {
+  now: ['Right now: shelter where you are', ['Go to the lowest floor now: basement, storm cellar or ground floor.', 'Get into a small interior room, hallway or stairwell with no windows.', 'Put as many walls as possible between you and the outside.', 'Crouch down and cover your head and neck. A helmet, mattress or heavy blankets help.']],
+  ready: ['Be ready to shelter', ['Pick your spot now: the lowest floor, a small interior room with no windows.', 'Keep shoes, a flashlight and your phone (charged) nearby.', 'If a warning is issued, go there right away. Don\'t wait to see it.']],
+  indoors: ['Stay indoors', ['Stay inside and away from windows and doors.', 'Charge your phone and a battery pack in case the power goes out.', 'Avoid travel. If you must go out, tell someone your route.', 'Keep flashlights, water and warm layers handy.']],
+  high: ['Avoid low areas and flood water', ['Move to higher ground if water is rising where you are.', 'Never walk or drive through flood water: 6 inches can knock you down, 12 inches can carry a car.', 'Stay out of basements if water is coming in.']],
+  cool: ['Stay cool', ['Stay in air conditioning if you can (libraries and community centers are often cooling spots).', 'Drink water often, even if you aren\'t thirsty.', 'Check on older neighbors, kids and pets.']],
+};
+
+function LiveShelterBody() {
+  const s = useStore();
+  const ph = phase(s);
+  const places = myPlaces(s);
+  const order = myOrder(s);
+  const [where, setWhere] = useState(hereId(s));
+  const rows = ph.impacts.shelter.rows || [];
+  const row = rows.find((r) => r.place === where) || { tone: 'ok', text: 'No need to shelter.' };
+  const guide = LIVE_GUIDE[row.kind] || LIVE_GUIDE[row.tone === 'bad' ? 'now' : 'ready'];
+  const nearOk = order.slice(0, 3).includes(where);
+  return html`<div>
+    ${order.length > 1 ? html`<${Segmented} value=${where} onChange=${(v) => { log('shelter_where', v); setWhere(v); }}
+      options=${order.slice(0, 3).map((id) => ({ value: id, label: id === 'here' ? "Where I am" : "At " + (places[id].short || places[id].name) }))} />` : ''}
+    ${row.tone !== 'ok' ? html`<section class=${'card mt12 ' + (row.tone === 'bad' ? 'danger-card' : 'warn-card')}>
+      <div class="row gap8"><${Icon} n="shelter" size=${22} /><h3>${guide[0]}</h3></div>
+      <p class="small">${row.text}</p>
+      ${row.tone === 'bad' ? html`<p class="small">Going outside to reach another shelter during a warning is more dangerous than staying in a sturdy building.</p>` : ''}
+      <ol class="steps">${guide[1].map((t) => html`<li>${t}</li>`)}</ol>
+      <div class="row gap8"><span class="small muted">Guidance from</span><${SourceChip} ids=${['ready_live', 'nws_live']} claim="Shelter guidance" /></div>
+    </section>` : html`<section class="card ok-card mt12"><h3>No need to shelter</h3><p class="small">No alerts for ${places[where] ? places[where].name : 'this place'} that call for sheltering.</p></section>`}
+    <h2 class="mt16">Status at your places</h2>
+    <${Rows} rows=${rows} />
+    <h2 class="mt16">Public buildings near ${places[where] ? places[where].name : 'you'}</h2>
+    <p class="small muted">From OpenStreetMap. These are <strong>not official shelters</strong>; hours, power and water aren't confirmed. Useful for charging a phone or getting water once it's safe to travel.</p>
+    <${PublicPlaces} near=${nearOk ? where : null} />
+  </div>`;
+}
+
 function ShelterBody() {
   const s = useStore();
+  if (isLive(s)) return html`<${LiveShelterBody} />`;
   const ph = phase(s);
   const [where, setWhere] = useState(SC.meta.userLocation);
   const active = ph.level !== 'clear';
@@ -61,13 +124,27 @@ export function Impact({ id }) {
   const imp = ph.impacts[id];
   if (!imp) return html`<div class="pad"><${Header} title="Not found" backTo="/home" /></div>`;
   let extra = null;
-  if (id === 'power') extra = html`<h2 class="mt16">Places with power near you</h2><${PublicPlaces} filter="power" />`;
-  if (id === 'water') extra = html`
+  const live = isLive(s);
+  const Ext = ({ href, children }) => html`<a class="link small" href=${href} target="_blank" rel="noopener">${children} <${Icon} n="ext" size=${12} /></a>`;
+  if (live && id === 'power') extra = html`
+    <section class="card mt12"><h3>Live outages</h3><p class="small">Utilities don't publish an outage feed this app can read. Your utility's outage map has live outages and restoration times.</p>
+      <${Ext} href="https://poweroutage.us/">Find your utility's outage map (PowerOutage.us)</${Ext}></section>
+    <h2 class="mt16">Public buildings nearby</h2><${PublicPlaces} />`;
+  else if (live && id === 'water') extra = html`
+    <section class="card mt12"><h3>Boil-water notices</h3><p class="small">These come from your city or water utility (by text alert, website or local news), not the weather service. If you're told to boil water: bring tap water to a rolling boil for 1 minute, or use bottled water.</p>
+      <${Ext} href="https://www.epa.gov/ground-water-and-drinking-water/emergency-disinfection-drinking-water">EPA: what to do during a boil-water notice</${Ext}></section>
+    <h2 class="mt16">Public buildings nearby</h2><${PublicPlaces} />`;
+  else if (live && id === 'roads') extra = html`
+    <section class="card mt12"><h3>Road closures</h3><p class="small">Closures and crashes come from your state's 511 service. This app shows weather-based driving risk from NWS alerts and the forecast.</p>
+      <${Ext} href="https://www.fhwa.dot.gov/trafficinfo/">Find your state's 511 traffic site</${Ext}></section>
+    <button class="btn ghost full mt12" onClick=${() => nav('/map?layer=radar')}><${Icon} n="map" size=${18} /> View radar & warning areas</button>`;
+  else if (id === 'power') extra = html`<h2 class="mt16">Places with power near you</h2><${PublicPlaces} filter="power" />`;
+  if (!live && id === 'water') extra = html`
     ${imp.tone !== 'ok' ? html`<section class="card warn-card mt12"><h3>Boil-water advisory: what to do</h3>
       <ol class="steps"><li>Bring tap water to a rolling boil for 1 minute, then let it cool.</li><li>Or use bottled water for drinking, cooking, brushing teeth and baby formula.</li><li>Showering is OK. Don't swallow the water.</li></ol>
       <${SourceChip} ids=${['a2water']} claim="Boil-water instructions" /></section>` : ''}
     <h2 class="mt16">Places with drinking water</h2><${PublicPlaces} filter="water" />`;
-  if (id === 'roads') extra = html`
+  if (!live && id === 'roads') extra = html`
     <h2 class="mt16">Closures & hazards</h2>
     <div class="rows">${ph.roadMarks.map((r) => html`<div class="prow bad"><span class=${'road-sym ' + r.kind}>${r.kind === 'closed' ? '' : '≈'}</span>
       <div class="grow"><div class="prow-text"><strong>${r.label}</strong></div><div class="small muted">Reported ${r.time}</div></div><${SourceChip} ids=${r.sourceIds} claim=${r.label} /></div>`)}</div>

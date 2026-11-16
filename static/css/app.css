@@ -422,3 +422,36 @@ details.card summary { cursor: pointer; list-style: none; }
 .lc-btn { flex: 1; height: 38px; border-radius: 10px; background: rgba(15,27,45,.08); font-weight: 700; font-size: .86rem; }
 .small-card .lc-line { margin-top: 4px; }
 .lock-hint { margin-top: auto; text-align: center; font-size: .82rem; opacity: .7; }
+
+/* ---------------------------------------------------------------- live mode */
+.alert-banner.advisory { background: var(--amber); }
+.pill.watch, .pill.advisory { background: var(--amber-bg); color: var(--amber); }
+.watch-note { display: flex; gap: 10px; align-items: center; border-radius: 14px; padding: 10px 12px; margin-top: 4px; font-size: .92rem;
+  background: var(--amber-bg); color: #6b4000; box-shadow: inset 0 0 0 1.5px #f3d39a; }
+.all-clear-note.loading { background: var(--blue-bg); color: var(--blue); }
+.mode-strip { display: flex; gap: 6px; align-items: center; justify-content: center; font-size: .78rem; font-weight: 700;
+  background: var(--purple); color: #fff; border-radius: 10px; padding: 5px 10px; margin: 2px 0 6px; }
+.loc-note { display: flex; gap: 8px; align-items: center; width: 100%; text-align: left; font: inherit; font-size: .85rem;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; margin: 2px 0 6px; color: var(--ink2); cursor: pointer; }
+.loc-note.warn { background: var(--amber-bg); border-color: #f3d39a; cursor: default; }
+.link-btn { background: none; border: 0; padding: 0; font: inherit; color: var(--blue); cursor: pointer; text-decoration: underline; }
+.link-btn:disabled { color: var(--muted); text-decoration: none; }
+.tag.unk { background: #eef0f3; color: var(--muted); }
+.live-alert { border-left: 4px solid var(--amber); padding: 6px 10px; margin-top: 6px; background: var(--bg); border-radius: 8px; }
+.live-alert.warning { border-left-color: var(--red); }
+.map-note { position: absolute; left: 10px; right: 10px; top: 10px; z-index: 500; background: rgba(255,255,255,.95); border-radius: 12px;
+  padding: 8px 10px; font-size: .82rem; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+a.btn { text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+.map-dontdrive ~ .map-note { top: 56px; }
+
+/* ---------------------------------------------------------------- post photos */
+.photo-btn { cursor: pointer; }
+.photo-prev { position: relative; margin: 4px 0 8px; }
+.photo-prev img { width: 100%; max-height: 220px; object-fit: cover; border-radius: 12px; display: block; }
+.photo-x { position: absolute; top: 6px; right: 6px; width: 32px; height: 32px; border-radius: 16px; border: 0; background: rgba(0,0,0,.6); color: #fff; display: grid; place-items: center; cursor: pointer; }
+.post-photo { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; margin-top: 4px; }
+.post-photo img { width: 100%; max-height: 260px; object-fit: cover; border-radius: 12px; display: block; }
+.photo-full { width: 100%; max-height: 70vh; object-fit: contain; border-radius: 12px; background: #000; }
+.post-actions { justify-content: flex-end; margin-top: 6px; }
+.muted-link { color: var(--muted); }
+.warn-text { color: var(--amber); }

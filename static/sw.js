@@ -1,10 +1,10 @@
 // Service worker: makes the app installable and usable offline (last known alert stays readable).
 // Only active on https:// or http://localhost (browser rule).
-const VERSION = 'sw-v1';
+const VERSION = 'sw-v3';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css', 'data/scenario.json',
   'vendor/preact-htm.js', 'vendor/leaflet.js', 'vendor/leaflet.css', 'vendor/chart.umd.js',
-  'js/app.js', 'js/store.js', 'js/ui.js', 'js/log.js', 'js/api.js',
+  'js/app.js', 'js/store.js', 'js/ui.js', 'js/log.js', 'js/api.js', 'js/live.js',
   'js/screens/lock.js', 'js/screens/home.js', 'js/screens/impact.js', 'js/screens/map.js',
   'js/screens/ask.js', 'js/screens/checkin.js', 'js/screens/more.js', 'js/screens/forecast.js',
   'js/screens/reports.js', 'js/screens/sources.js', 'js/screens/places.js', 'js/screens/admin.js',

@@ -3,3 +3,4 @@ logs/
 certs/
 bin/
 __pycache__/
+userdata/

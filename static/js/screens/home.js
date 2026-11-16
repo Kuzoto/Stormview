@@ -2,7 +2,8 @@
 // AI summary, Power / Water / Roads / Shelter cards (each with sources, each opens details),
 // check-in prompt, color-coded updates timeline, and a map preview.
 import { html, useEffect, useRef } from '../../vendor/preact-htm.js';
-import { SC, useStore, phase, placeName } from '../store.js';
+import { SC, useStore, phase, placeName, isLive, myOrder, myPlaces, myCircle } from '../store.js';
+import { refreshLive } from '../live.js';
 import { loadSummary } from '../api.js';
 import { Icon, SourceChip, Header, nav, navTab, APP_NAME, Dot } from '../ui.js';
 import { MiniMap } from './map.js';
@@ -17,14 +18,15 @@ const CARDS = [
 function Summary() {
   const s = useStore();
   const ph = phase(s);
-  const sum = s.summaries[ph.id];
-  useEffect(() => { loadSummary(ph.id); }, [ph.id, s.offline]);
+  const live = isLive(s);
+  const sum = live ? (ph.loading ? null : s.summaries['live:' + ph.digest]) : s.summaries[ph.id];
+  useEffect(() => { if (!ph.loading) loadSummary(ph.id); }, [ph.id, ph.digest, s.offline, s.mode]);
   return html`<section class="card summary">
     <div class="sum-hdr"><span class="wb-avatar sm">W</span><span>WeatherBoy summary for you</span></div>
     ${sum ? html`<p class="sum-text">${sum.answer}</p>` : html`<p class="sum-text skeleton">Reading the latest alert…</p>`}
     <div class="row between">
       ${sum ? html`<${SourceChip} ids=${sum.sourceIds || []} claim=${sum.answer} />` : html`<span></span>`}
-      <span class="tiny muted">${sum && sum.fallback ? 'Written from official alert text' : 'AI summary of official sources'}</span>
+      <span class="tiny muted">${sum && sum.fallback ? 'Written from official alert text' : live ? 'AI summary of live official data' : 'AI summary of official sources'}</span>
     </div>
   </section>`;
 }
@@ -48,10 +50,12 @@ function CheckinPrompt() {
       <${Icon} n="checkc" size=${20} /><span class="grow">You checked in as <strong>${s.checkin.status === 'safe' ? 'Safe' : 'Need help'}</strong> · sent to ${s.checkin.sentTo.length} people at ${s.checkin.time}</span><${Icon} n="chev" size=${16} />
     </button>`;
   }
-  const waiting = s.circle.filter((c) => c.status === 'none').length;
+  const circle = myCircle(s);
+  const waiting = circle.filter((c) => c.status === 'none').length;
   return html`<section class="card checkin-prompt">
     <div class="row gap8"><${Icon} n="shield" size=${22} /><div class="grow"><strong>Let your circle know you're OK</strong>
-      <div class="small muted">You haven't checked in yet · ${waiting} of ${s.circle.length} people have no update</div></div></div>
+      <div class="small muted">${isLive(s) ? (circle.length ? 'You haven\'t checked in yet · ' + circle.length + ' people in your circle' : 'Send your status by text, or add people in Check-In')
+        : `You haven't checked in yet · ${waiting} of ${circle.length} people have no update`}</div></div></div>
     <div class="row gap8 mt8">
       <button class="btn safe grow" onClick=${() => nav('/checkin?quick=safe')}>I'm safe</button>
       <button class="btn ghost grow" onClick=${() => navTab('/checkin')}>Open Check-In</button>
@@ -63,7 +67,8 @@ function Timeline() {
   const s = useStore();
   const ph = phase(s);
   return html`<section class="card">
-    <div class="sec-hdr"><h2>Updates</h2><span class="muted small">as of ${ph.clock}</span></div>
+    <div class="sec-hdr"><h2>Updates</h2><span class="muted small">as of ${ph.clock}${isLive(s) ? html` · <button class="link-btn" onClick=${() => refreshLive(true)} disabled=${s.liveLoading}>${s.liveLoading ? 'Updating…' : 'Refresh'}</button>` : ''}</span></div>
+    ${!ph.timeline.length ? html`<p class="small muted">${ph.loading ? 'Loading…' : 'No updates.'}</p>` : ''}
     <ol class="timeline">
       ${ph.timeline.map((t, i) => html`<li class=${'tl ' + t.level + (i === ph.timeline.length - 1 ? ' latest' : '')}>
         <span class="tl-dot"></span>
@@ -79,14 +84,22 @@ export function Home() {
   const s = useStore();
   const ph = phase(s);
   const openAdmin = () => nav('/admin');
+  const live = isLive(s);
+  const places = myPlaces(s);
+  const here = live && places.here;
+  const showCheckin = !live || ph.level === 'warning' || ph.level === 'watch' || s.checkin.status !== 'none';
   return html`<div class="pad">
     <${Header} title=${APP_NAME} onTitleHold=${openAdmin} right=${html`<span class="hdr-clock">${ph.clock}</span>`} />
+    ${!live ? html`<div class="mode-strip" onClick=${openAdmin}><${Icon} n="info" size=${15} /> Practice scenario · not real weather</div>` : ''}
+    ${here && (here.approx || here.locError) ? html`<button class="loc-note" onClick=${() => nav('/places')}><${Icon} n="pin" size=${16} /><span class="grow">${here.addr}</span><span class="link small">Set places</span></button>` : ''}
+    ${live && ph.errors && ph.errors.length ? html`<div class="loc-note warn"><${Icon} n="alert" size=${16} /><span class="grow small">${ph.errors[0]}</span></div>` : ''}
     ${ph.dontDrive ? html`<div class="dont-drive" role="alert"><${Icon} n="car" size=${22} /><div><strong>${ph.action}</strong></div></div>`
-      : html`<div class="all-clear-note"><${Icon} n="checkc" size=${22} /><div><strong>${ph.action}</strong></div></div>`}
+      : ph.level === 'clear' || ph.loading ? html`<div class=${'all-clear-note' + (ph.loading ? ' loading' : '')}><${Icon} n=${ph.loading ? 'clock' : 'checkc'} size=${22} /><div><strong>${ph.action}</strong></div></div>`
+      : html`<div class="watch-note" role="alert"><${Icon} n="alert" size=${22} /><div><strong>${ph.action}</strong></div></div>`}
     <${Summary} />
-    <div class="sec-hdr mt16"><h2>What this means for you</h2><span class="muted small">Home · Work · Mom's</span></div>
+    <div class="sec-hdr mt16"><h2>What this means for you</h2><span class="muted small">${myOrder(s).slice(0, 3).map((id) => places[id].short || places[id].name).join(' · ')}</span></div>
     <div class="impact-grid">${CARDS.map((c) => html`<${ImpactCard} c=${c} />`)}</div>
-    <${CheckinPrompt} />
+    ${showCheckin ? html`<${CheckinPrompt} />` : ''}
     <${Timeline} />
     <section class="card map-card" onClick=${() => navTab('/map')} data-log="map preview">
       <div class="sec-hdr"><h2>Map</h2><span class="link small">Open full map <${Icon} n="chev" size=${14} /></span></div>

@@ -1,7 +1,8 @@
 // Researcher panel (hidden): participant/condition, 60 s task timer, reset, phase, offline, log export.
 // Open with ?admin=1, or long-press the app title on Home / More.
 import { html, useEffect, useState } from '../../vendor/preact-htm.js';
-import { SC, useStore, set, get, resetApp, toast } from '../store.js';
+import { SC, useStore, set, get, resetApp, toast, isLive } from '../store.js';
+import { refreshLive, startLive } from '../live.js';
 import { Header, Segmented, nav, navTab } from '../ui.js';
 import { log, flush } from '../log.js';
 import { health, loadSummary } from '../api.js';
@@ -17,6 +18,7 @@ export function Admin() {
   const start = (startAt) => {
     if (!s.study.pid) { toast('Enter a participant ID first', 'bad'); return; }
     resetApp(true);
+    set({ mode: 'scenario' }); // study tasks always use the scripted storm, so every participant sees the same thing
     const session = new Date().toISOString().slice(0, 19);
     set((st) => ({ study: { ...st.study, session }, timer: { startedAt: Date.now(), durationMs: dur * 1000 } }));
     log('task_start', startAt, { durationMs: dur * 1000, condition: get().study.condition });
@@ -25,13 +27,29 @@ export function Admin() {
   };
   const stop = () => { log('task_stop', 'manual'); set({ timer: null }); flush(); };
   const prefetch = async () => {
+    const mode = get().mode;
+    set({ mode: 'scenario' });
     for (const p of SC.phases) await loadSummary(p.id, true);
-    toast('Summaries generated & cached');
+    set({ mode });
+    toast('Scenario summaries generated & cached');
+  };
+  const setMode = (m) => {
+    if (s.timer) log('task_stop', 'mode_change');
+    set({ mode: m, chat: [], sheet: null, timer: null, checkin: { status: 'none', time: null, sentTo: [], shareLocation: false } });
+    log('mode_set', m);
+    if (m === 'live') { startLive(); refreshLive(true); }
+    toast(m === 'live' ? 'Live mode: real weather for your places' : 'Practice scenario: scripted tornado warning');
   };
 
   return html`<div class="pad admin">
     <${Header} title="Researcher panel" backTo="/home" />
     <section class="card">
+      <h2>Mode</h2>
+      <${Segmented} value=${s.mode} onChange=${setMode}
+        options=${[{ value: 'live', label: 'Live weather' }, { value: 'scenario', label: 'Practice scenario' }]} />
+      <p class="tiny muted">${isLive(s) ? 'Live: real NWS alerts, forecast and radar for this phone\'s location and saved places. This is the default.' : 'Scenario: the scripted 7:40 PM tornado warning used in the study. Start (below) switches to it automatically.'}</p>
+    </section>
+    <section class="card mt12">
       <h2>Participant</h2>
       <label class="field"><span>Participant ID</span><input value=${s.study.pid} onInput=${(e) => study({ pid: e.target.value.replace(/[^A-Za-z0-9_-]/g, '') })} placeholder="e.g. P01" /></label>
       <div class="small muted">Condition order</div>
@@ -43,7 +61,7 @@ export function Admin() {
       <h2>Task timer</h2>
       <div class="row gap8"><label class="field grow"><span>Seconds</span><input type="number" value=${dur} onInput=${(e) => setDur(Math.max(5, +e.target.value || 60))} /></label>
         <label class="row gap8 small"><input type="checkbox" checked=${s.study.showTimer} onChange=${(e) => study({ showTimer: e.target.checked })} /> Show countdown to participant</label></div>
-      <p class="tiny muted">Start resets the app (check-in, chat, posts, phase = Warning), opens it, and starts the timer. When time is up the participant answers the safety (and informed) Likert questions, which are logged.</p>
+      <p class="tiny muted">Start switches to the practice scenario, resets it (check-in, chat, posts, phase = Warning), opens it, and starts the timer. When time is up the participant answers the safety (and informed) Likert questions, which are logged.</p>
       <div class="row gap8">
         <button class="btn primary grow" onClick=${() => start('/home')}>Start on Home</button>
         <button class="btn ghost grow" onClick=${() => start('/lock')}>Start on lock screen</button>
@@ -53,8 +71,8 @@ export function Admin() {
     </section>
 
     <section class="card mt12">
-      <h2>Scenario</h2>
-      <div class="small muted">Phase (simulated time)</div>
+      <h2>Practice scenario</h2>
+      <div class="small muted">Phase (simulated time, used when the mode is Practice scenario)</div>
       <${Segmented} value=${s.phase} onChange=${(v) => { set({ phase: v }); log('phase_set', v); }}
         options=${SC.phases.map((p) => ({ value: p.id, label: p.clock }))} />
       <div class="tiny muted mt8">${SC.phases.map((p) => p.clock + ' = ' + p.label).join(' · ')}</div>
