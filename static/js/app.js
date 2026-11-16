@@ -17,6 +17,8 @@ import { Reports } from './screens/reports.js';
 import { Sources } from './screens/sources.js';
 import { Places } from './screens/places.js';
 import { Admin } from './screens/admin.js';
+import { Join } from './screens/join.js';
+import { startCircle } from './circle.js';
 
 // ---------------------------------------------------------------- hash router with a back stack
 function parseHash() {
@@ -54,13 +56,14 @@ const TABS = [
   { path: '/more', label: 'More', icon: 'more' },
 ];
 const TAB_OF = { impact: '/home', home: '/home', map: '/map', checkin: '/checkin', ask: '/ask',
-  more: '/more', forecast: '/more', reports: '/more', sources: '/more', places: '/more' };
+  more: '/more', forecast: '/more', reports: '/more', sources: '/more', places: '/more', join: '/checkin' };
 
 function TabBar({ route }) {
   const s = useStore();
   const active = TAB_OF[route.parts[0]] || '/home';
   const lvl = phase(s).level;
-  const needsCheckin = s.checkin.status === 'none' && (isLive(s) ? lvl === 'warning' : lvl !== 'clear');
+  const pinged = isLive(s) && s.circleLive && (s.circleLive.pings || []).length > 0;
+  const needsCheckin = pinged || (s.checkin.status === 'none' && (isLive(s) ? lvl === 'warning' : lvl !== 'clear'));
   return html`<nav class="tabbar" aria-label="Main">
     ${TABS.map((t) => html`<button class=${'tab' + (active === t.path ? ' on' : '') + (t.accent ? ' accent' : '')}
         aria-current=${active === t.path ? 'page' : undefined} onClick=${() => navTab(t.path)} data-log=${'tab ' + t.label}>
@@ -140,6 +143,7 @@ function Screen({ route }) {
     case 'sources': return html`<${Sources} />`;
     case 'places': return html`<${Places} />`;
     case 'admin': return html`<${Admin} />`;
+    case 'join': return html`<${Join} code=${route.parts[1]} />`;
     default: return html`<${Home} />`;
   }
 }
@@ -172,7 +176,7 @@ function App() {
   document.documentElement.classList.toggle('standalone', !!standalone);
   render(html`<${App} />`, document.getElementById('app'));
   health();
-  if (isLive()) startLive();
+  if (isLive()) { startLive(); if (get().profile && get().profile.token) startCircle(); }
   window.addEventListener('online', () => { if (get().offline === 'auto') set({ offline: false }); });
   window.addEventListener('offline', () => set({ offline: 'auto' }));
   if ('serviceWorker' in navigator && window.isSecureContext) {

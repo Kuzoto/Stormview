@@ -41,10 +41,49 @@ function drawWarning(g, ph, strong) {
 }
 
 // Live NEXRAD base-reflectivity mosaic (NWS data, tiles served by Iowa Environmental Mesonet, ~5 min updates).
-function drawRadar(g) {
+// Frames for the loop: IEM keeps the last 50 minutes at 5-minute steps (…-m50m … -m05m, then current).
+const RADAR_STEPS = [50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 0];
+function radarLayer(minsAgo, opacity) {
   const bust = Math.floor(Date.now() / 300000);
-  L.tileLayer('https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png?_=' + bust,
-    { opacity: 0.6, maxZoom: 18, maxNativeZoom: 12, attribution: 'Radar: NWS NEXRAD via IEM' }).addTo(g);
+  return L.tileLayer(`https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913${minsAgo ? '-m' + String(minsAgo).padStart(2, '0') + 'm' : ''}/{z}/{x}/{y}.png?_=${bust}`,
+    { opacity, maxZoom: 18, maxNativeZoom: 12, attribution: 'Radar: NWS NEXRAD via IEM' });
+}
+function drawRadar(g, loop = false) {
+  if (!loop) { radarLayer(0, 0.6).addTo(g); return null; }
+  return RADAR_STEPS.map((m, i) => radarLayer(m, i === RADAR_STEPS.length - 1 ? 0.6 : 0).addTo(g));
+}
+const radarClock = (iso, minsAgo = 0) => (iso ? new Date(new Date(iso).getTime() - minsAgo * 60000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '');
+
+// ---- live extras: storm track, NWS storm reports, neighbor posts, ODIN outage areas
+const LSR_GLYPH = { tornado: 'T', flood: '≈', damage: '!', hail: '•', snow: '*', wind: 'W', rain: '‖', other: 'i' };
+const fmtTime = (iso) => (iso ? new Date(iso).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '');
+function drawTrack(g, ph) {
+  const t = ph.stormTrack;
+  if (!t) return;
+  L.polyline(t.path, { color: '#6a1b9a', weight: 3, dashArray: '8 6', interactive: false }).addTo(g);
+  t.path.slice(1).forEach((pt, i) => L.marker(pt, { icon: L.divIcon({ className: 'mk m-track-t', html: `+${(i + 1) * 15}m`, iconSize: [36, 16], iconAnchor: [18, -4] }), interactive: false }).addTo(g));
+  L.marker([t.lat, t.lng], { icon: divIcon('m-track', `<span style="display:inline-block;transform:rotate(${t.headingDeg - 90}deg)">➤</span>`, [28, 28]), interactive: false }).addTo(g);
+  L.marker([t.lat, t.lng], { icon: L.divIcon({ className: 'mk m-storm-lbl', html: `${t.what} · ${t.heading} ${t.mph} mph`, iconSize: [150, 20], iconAnchor: [75, -14] }), interactive: false }).addTo(g);
+}
+function drawReports(g, ph, onPick, filter) {
+  (ph.stormReports || []).filter(filter || (() => true)).forEach((r) => {
+    const m = L.marker([r.lat, r.lng], { icon: divIcon('m-lsr ' + r.kind, LSR_GLYPH[r.kind] || 'i', [24, 24]) }).addTo(g);
+    if (onPick) m.on('click', () => onPick({ title: `NWS report: ${r.label}${r.magnitude ? ' ' + r.magnitude : ''}`, sub: `${r.city}, ${r.state} · ${fmtTime(r.time)} · ${r.source}${r.remark ? ' · ' + r.remark : ''}`, ids: ['lsr_live'] }));
+  });
+}
+function drawPosts(g, ph, onPick, cats) {
+  (ph.mapPosts || []).filter((p) => !cats || cats.includes(p.category)).forEach((p) => {
+    const m = L.marker(p.approx, { icon: divIcon('m-post', '?', [24, 24]) }).addTo(g);
+    if (onPick) m.on('click', () => onPick({ title: `Neighbor: ${p.category}`, sub: `"${p.text.slice(0, 140)}" · ${p.author} · about ${p.distanceMi} mi away · unverified`, ids: ['posts_live'], post: true }));
+  });
+}
+function drawOdin(g, ph, onPick) {
+  const areas = (ph.power && ph.power.areas) || [];
+  const max = Math.max(1, ...areas.map((a) => a.out));
+  areas.forEach((a) => a.rings.forEach((ring) => {
+    const poly = L.polygon(ring, { color: C.outage, weight: 1.5, fillColor: C.outage, fillOpacity: 0.12 + 0.4 * Math.min(1, a.out / max) }).addTo(g);
+    if (onPick) poly.on('click', () => onPick({ title: `${a.county} County: ${a.out.toLocaleString()} customers out`, sub: `${a.utilities.join(', ')} · reported to the federal ODIN system`, ids: ['odin_live'] }));
+  }));
 }
 
 function drawStorm(g, ph) {
@@ -112,6 +151,7 @@ export function MiniMap() {
     if (map._g) map._g.remove();
     const g = (map._g = L.layerGroup().addTo(map));
     if (ph.mode === 'live' && !s.offline) drawRadar(g);
+    if (ph.mode === 'live') drawTrack(g, ph);
     drawWarning(g, ph, false); drawStorm(g, ph); drawOutages(g, ph); drawRoads(g, ph); drawBase(g, s, { labels: false });
     fit(map, s, ph);
     setTimeout(() => { if (!map._dead) map.invalidateSize(); }, 350);
@@ -138,16 +178,34 @@ const LEGEND = {
 };
 const LAYER_SOURCES = { radar: ['nws_radar', 'nws_warn'], roads: ['a2roads', 'neighbor'], power: ['dte', 'wcem'], shelters: ['wcem'] };
 const LIVE_LEGEND = {
-  radar: [['you', 'You are here'], ['place', 'Saved place'], ['radar', 'Live radar: green light rain → red/purple severe'], ['warnarea', 'Active NWS alert area (dashed)']],
-  roads: [['you', 'You are here'], ['warnarea', 'Active NWS alert area'], ['place', 'Saved place']],
-  power: [['you', 'You are here'], ['shelter', 'Public building (power not reported)'], ['place', 'Saved place']],
+  radar: [['you', 'You are here'], ['place', 'Saved place'], ['radar', 'Live radar: green light rain → red/purple severe'], ['warnarea', 'Active NWS alert area (dashed)'], ['track', 'Storm path, next 60 min (estimate)'], ['lsr', 'NWS storm report (tap for details)']],
+  roads: [['you', 'You are here'], ['lsr', 'NWS report: flooding, snow/ice, trees down'], ['post', 'Neighbor post (unverified)'], ['warnarea', 'Active NWS alert area']],
+  power: [['you', 'You are here'], ['odin', 'Customers without power, by county (ODIN)'], ['lsr', 'NWS report: power lines or wind damage'], ['post', 'Neighbor post about power (unverified)'], ['shelter', 'Public building (power not reported)']],
   shelters: [['you', 'You are here'], ['shelter', 'Public building: library, community center, town hall'], ['place', 'Saved place']],
 };
-const LIVE_LAYER_SOURCES = { radar: ['radar_live', 'nws_live'], roads: ['nws_live', 'roads_live'], power: ['outages_live', 'osm_live'], shelters: ['osm_live', 'ready_live'] };
-const LIVE_NOTE = {
-  roads: 'Live road closures aren\'t available to this app. Check your state\'s 511 site.',
-  power: 'Live outages aren\'t available to this app. Check your utility\'s outage map.',
-};
+const LIVE_LAYER_SOURCES = { radar: ['radar_live', 'nws_live', 'lsr_live'], roads: ['lsr_live', 'nws_live', 'posts_live', 'roads_live'], power: ['odin_live', 'lsr_live', 'posts_live', 'outages_live'], shelters: ['osm_live', 'ready_live'] };
+const ROAD_KINDS = ['flood', 'snow', 'damage', 'tornado'];
+const POWER_KINDS = ['damage', 'tornado'];
+
+/** Power layer message: ODIN coverage for the user's utility, or the fallback with local outage links. */
+export function PowerNote({ ph, inline = false }) {
+  const pw = ph.power;
+  if (!pw) return null;
+  const here = pw.byPlace && (pw.byPlace.here || Object.values(pw.byPlace)[0]);
+  const utils = (here && here.utilities) || [];
+  const odinU = utils.filter((u) => u.inOdin).map((u) => u.name);
+  const other = utils.filter((u) => !u.inOdin).map((u) => u.name).slice(0, 2);
+  const nAreas = (pw.areas || []).length;
+  const nPosts = (ph.mapPosts || []).filter((p) => p.category === 'Power').length;
+  const nLsr = (ph.stormReports || []).filter((r) => r.power || POWER_KINDS.includes(r.kind)).length;
+  const covered = here && here.covered;
+  return html`<div class=${(inline ? 'card mt12 power-note' : 'map-note power-note') + (covered ? '' : ' warn')}>
+    ${covered
+      ? html`<div><strong>Live outages from ${odinU.join(' & ')}</strong> (federal ODIN data, by county). ${nAreas ? `${nAreas} count${nAreas > 1 ? 'ies' : 'y'} with outages nearby.` : 'No outages reported nearby.'}</div>`
+      : html`<div><strong>No live outage data for ${other.join(' or ') || 'your utility'}.</strong> ${other.length > 1 ? "They don't" : "It doesn't"} share outages with the federal ODIN system, so this map shows ${nLsr || nPosts ? `${nLsr} NWS report${nLsr === 1 ? '' : 's'} and ${nPosts} neighbor post${nPosts === 1 ? '' : 's'} about power` : 'NWS reports and neighbor posts about power (none right now)'}.</div>`}
+    <div class="pn-links">${(pw.links || []).slice(0, 3).map((l) => html`<a href=${l.url} target="_blank" rel="noopener" onClick=${() => log('power_link', l.label)}>${l.label} ↗</a>`)}</div>
+  </div>`;
+}
 
 export function MapScreen({ query = {} }) {
   const ref = useRef();
@@ -158,6 +216,10 @@ export function MapScreen({ query = {} }) {
   const [route, setRoute] = useState(query.route || null);
   const [picked, setPicked] = useState(null);
   const [legendOpen, setLegendOpen] = useState(true);
+  const [playing, setPlaying] = useState(false);
+  const [frame, setFrame] = useState(RADAR_STEPS.length - 1);
+  const framesRef = useRef(null);
+  useEffect(() => { if (query.layer && query.layer !== layer) { setLayer(query.layer); setPicked(null); setPlaying(false); } }, [query.layer]);
 
   useEffect(() => {
     const map = newMap(ref.current, true);
@@ -172,10 +234,27 @@ export function MapScreen({ query = {} }) {
     const g = (map._g = L.layerGroup().addTo(map));
     const pick = (p) => { log('map_pick', p.title); setPicked(p); };
     const live = ph.mode === 'live';
-    if (live && layer === 'radar' && !s.offline) drawRadar(g);
+    framesRef.current = null;
+    if (live && layer === 'radar' && !s.offline) framesRef.current = drawRadar(g, playing);
     drawWarning(g, ph, layer === 'radar');
     const extra = [];
-    if (layer === 'radar') drawStorm(g, ph);
+    if (layer === 'radar') { drawStorm(g, ph); if (live) { drawTrack(g, ph); drawReports(g, ph, pick); } }
+    // Include nearby reports/posts (within ~15 mi) in the view so they aren't off-screen.
+    const near = (lst) => lst.filter((x) => (x.distanceMi ?? 99) <= 15).forEach((x) => extra.push(x.approx || [x.lat, x.lng]));
+    if (live && layer === 'radar') near(ph.stormReports || []);
+    if (live && layer === 'roads') {
+      drawReports(g, ph, pick, (r) => r.road || ROAD_KINDS.includes(r.kind));
+      drawPosts(g, ph, pick, ['Road', 'Flooding', 'Damage']);
+      near((ph.stormReports || []).filter((r) => r.road || ROAD_KINDS.includes(r.kind)));
+      near((ph.mapPosts || []).filter((p) => ['Road', 'Flooding', 'Damage'].includes(p.category)));
+    }
+    if (live && layer === 'power') {
+      drawOdin(g, ph, pick);
+      drawReports(g, ph, pick, (r) => r.power || POWER_KINDS.includes(r.kind));
+      drawPosts(g, ph, pick, ['Power']);
+      near((ph.stormReports || []).filter((r) => r.power || POWER_KINDS.includes(r.kind)));
+      near((ph.mapPosts || []).filter((p) => p.category === 'Power'));
+    }
     if (layer === 'roads') {
       drawRoads(g, ph, pick);
       if (ph.routeHome) L.polyline(ph.routeHome, { color: C.route, weight: 5, opacity: 0.85 }).addTo(g);
@@ -191,7 +270,23 @@ export function MapScreen({ query = {} }) {
     if (layer === 'shelters' && !live && route && SC.routes[route]) map.fitBounds(L.latLngBounds(SC.routes[route]).pad(1.2), { animate: false, maxZoom: 15 });
     else if (layer === 'shelters' && selLive) map.setView([selLive.lat, selLive.lng], 15, { animate: false });
     else fit(map, s, ph, extra);
-  }, [layer, route, ph.id, ph.digest, JSON.stringify(myPlaces(s)), s.offline]);
+  }, [layer, route, ph.id, ph.digest, ph.fetchedAt, JSON.stringify(myPlaces(s)), s.offline, playing]);
+
+  // Radar loop: step through the 11 frames (50 min ago → now), pause on "now".
+  useEffect(() => {
+    if (!playing) { setFrame(RADAR_STEPS.length - 1); return; }
+    let i = 0, hold = 0;
+    const id = setInterval(() => {
+      const fr = framesRef.current;
+      if (!fr) return;
+      if (i === fr.length - 1 && hold++ < 3) return;
+      hold = 0;
+      fr.forEach((l, k) => l.setOpacity(k === i ? 0.6 : 0));
+      setFrame(i);
+      i = (i + 1) % fr.length;
+    }, 550);
+    return () => clearInterval(id);
+  }, [playing, layer]);
 
   const live = ph.mode === 'live';
   const sel = route && (live ? (ph.publicPlaces || []) : SC.shelterPlaces).find((p) => p.id === route);
@@ -202,12 +297,17 @@ export function MapScreen({ query = {} }) {
     <${Header} title="Map" />
     <div class="map-tools">
       <div class="small muted layer-lbl">Showing layer:</div>
-      <${Segmented} options=${LAYERS} value=${layer} onChange=${(v) => { log('map_layer', v); setLayer(v); setPicked(null); }} cls="map-seg" />
+      <${Segmented} options=${LAYERS} value=${layer} onChange=${(v) => { log('map_layer', v); setLayer(v); setPicked(null); setPlaying(false); }} cls="map-seg" />
+      ${live && layer === 'radar' && !s.offline ? html`<div class="radar-ctl">
+        <button class="radar-play" aria-label=${playing ? 'Pause radar loop' : 'Play radar loop'} onClick=${() => { log('radar_loop', playing ? 'pause' : 'play'); setPlaying(!playing); }}>${playing ? '❚❚ Pause' : '▶ Play last 50 min'}</button>
+        <span>Radar image: <strong>${radarClock(ph.radarTime, RADAR_STEPS[frame]) || 'loading'}</strong>${playing ? (RADAR_STEPS[frame] ? ` (${RADAR_STEPS[frame]} min ago)` : ' (latest)') : ''}</span></div>` : ''}
     </div>
     <div class="map-holder">
       <div class="map-full" ref=${ref}></div>
       ${ph.dontDrive ? html`<div class="map-dontdrive"><${Icon} n="car" size=${18} /> Don't drive during the warning${ph.banner.until ? ' (' + ph.banner.until + ')' : ''}</div>` : ''}
-      ${live && LIVE_NOTE[layer] && !picked ? html`<div class="map-note">${LIVE_NOTE[layer]}</div>` : ''}
+      ${live && layer === 'radar' && ph.stormTrack && ph.stormTrack.etas.length && !picked ? html`<div class="map-note warn">${ph.stormTrack.etas.map((e) => e.text).join(' · ')} (estimate from the NWS warning)</div>` : ''}
+      ${live && layer === 'roads' && !picked ? html`<div class="map-note">Showing NWS storm reports and neighbor posts. Live road closures & traffic: <a href="https://www.fhwa.dot.gov/trafficinfo/" target="_blank" rel="noopener">your state's 511</a>.</div>` : ''}
+      ${live && layer === 'power' && !picked ? html`<${PowerNote} ph=${ph} />` : ''}
       ${s.offline ? html`<div class="map-offline">Offline: map tiles may be missing. Markers show the last update (${ph.clock}).</div>` : ''}
       ${picked ? html`<div class="map-pick card">
         <div class="row between"><strong>${picked.title}</strong><button class="hdr-btn sm" aria-label="Close" onClick=${() => setPicked(null)}><${Icon} n="x" size=${18} /></button></div>

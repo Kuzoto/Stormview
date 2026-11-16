@@ -4,6 +4,7 @@ import { html, useState } from '../../vendor/preact-htm.js';
 import { SC, useStore, phase, isLive, myPlaces, myOrder, hereId } from '../store.js';
 import { Icon, Header, SourceChip, Dot, PlaceTag, Segmented, nav, navTab } from '../ui.js';
 import { log } from '../log.js';
+import { PowerNote } from './map.js';
 
 const TITLES = { power: 'Power', water: 'Water', roads: 'Roads & commute', shelter: 'Shelter' };
 const ASK = { power: 'power_water', water: 'power_water', roads: 'drive', shelter: 'shelter' };
@@ -126,18 +127,32 @@ export function Impact({ id }) {
   let extra = null;
   const live = isLive(s);
   const Ext = ({ href, children }) => html`<a class="link small" href=${href} target="_blank" rel="noopener">${children} <${Icon} n="ext" size=${12} /></a>`;
+  const nearReports = (pred, cats) => html`${(ph.stormReports || []).filter(pred).slice(0, 5).map((r) => html`<div class="prow warn"><span class="rep-ic">!</span>
+      <div class="grow"><div class="prow-text"><strong>${r.label}${r.magnitude ? ' ' + r.magnitude : ''}</strong> · ${r.city}, ${r.distanceMi} mi away</div>
+        <div class="small muted">${new Date(r.time).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })} · ${r.source}${r.remark ? ' · ' + r.remark : ''}</div></div>
+      <${SourceChip} ids=${['lsr_live']} claim=${r.label + ' ' + r.city} /></div>`)}
+    ${(ph.mapPosts || []).filter((p) => cats.includes(p.category)).slice(0, 5).map((p) => html`<div class="prow warn"><span class="rep-ic com">?</span>
+      <div class="grow"><div class="prow-text">“${p.text}”</div><div class="small muted">${p.author} · ${p.distanceMi} mi away · unverified</div></div>
+      <${SourceChip} ids=${['posts_live']} claim=${p.text} /></div>`)}`;
+  const noneNear = (pred, cats) => !(ph.stormReports || []).some(pred) && !(ph.mapPosts || []).some((p) => cats.includes(p.category));
+  const powerPred = (r) => r.power || r.kind === 'damage' || r.kind === 'tornado';
+  const roadPred = (r) => r.road || ['flood', 'snow', 'damage', 'tornado'].includes(r.kind);
   if (live && id === 'power') extra = html`
-    <section class="card mt12"><h3>Live outages</h3><p class="small">Utilities don't publish an outage feed this app can read. Your utility's outage map has live outages and restoration times.</p>
-      <${Ext} href="https://poweroutage.us/">Find your utility's outage map (PowerOutage.us)</${Ext}></section>
+    <${PowerNote} ph=${ph} inline=${true} />
+    <h2 class="mt16">Power reports nearby</h2>
+    ${noneNear(powerPred, ['Power']) ? html`<p class="small muted">No NWS storm reports or neighbor posts about power nearby.</p>` : html`<div class="rows">${nearReports(powerPred, ['Power'])}</div>`}
+    <button class="btn ghost full mt12" onClick=${() => nav('/map?layer=power')}><${Icon} n="map" size=${18} /> View power on the map</button>
     <h2 class="mt16">Public buildings nearby</h2><${PublicPlaces} />`;
   else if (live && id === 'water') extra = html`
     <section class="card mt12"><h3>Boil-water notices</h3><p class="small">These come from your city or water utility (by text alert, website or local news), not the weather service. If you're told to boil water: bring tap water to a rolling boil for 1 minute, or use bottled water.</p>
       <${Ext} href="https://www.epa.gov/ground-water-and-drinking-water/emergency-disinfection-drinking-water">EPA: what to do during a boil-water notice</${Ext}></section>
     <h2 class="mt16">Public buildings nearby</h2><${PublicPlaces} />`;
   else if (live && id === 'roads') extra = html`
-    <section class="card mt12"><h3>Road closures</h3><p class="small">Closures and crashes come from your state's 511 service. This app shows weather-based driving risk from NWS alerts and the forecast.</p>
+    <h2 class="mt16">Road hazards reported nearby</h2>
+    ${noneNear(roadPred, ['Road', 'Flooding', 'Damage']) ? html`<p class="small muted">No NWS storm reports or neighbor posts about flooding, trees down or roads nearby.</p>` : html`<div class="rows">${nearReports(roadPred, ['Road', 'Flooding', 'Damage'])}</div>`}
+    <section class="card mt12"><h3>Closures & traffic</h3><p class="small">Official closures and crashes come from your state's 511 service. This app shows NWS storm reports, neighbor posts and weather-based driving risk.</p>
       <${Ext} href="https://www.fhwa.dot.gov/trafficinfo/">Find your state's 511 traffic site</${Ext}></section>
-    <button class="btn ghost full mt12" onClick=${() => nav('/map?layer=radar')}><${Icon} n="map" size=${18} /> View radar & warning areas</button>`;
+    <button class="btn ghost full mt12" onClick=${() => nav('/map?layer=roads')}><${Icon} n="map" size=${18} /> View road reports on the map</button>`;
   else if (id === 'power') extra = html`<h2 class="mt16">Places with power near you</h2><${PublicPlaces} filter="power" />`;
   if (!live && id === 'water') extra = html`
     ${imp.tone !== 'ok' ? html`<section class="card warn-card mt12"><h3>Boil-water advisory: what to do</h3>

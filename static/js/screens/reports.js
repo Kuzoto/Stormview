@@ -6,6 +6,10 @@ import { html, useState, useEffect } from '../../vendor/preact-htm.js';
 import { SC, useStore, set, get, phase, phaseIndex, toast, isLive, myPlaces, hereId, openSheet } from '../store.js';
 import { Icon, Header } from '../ui.js';
 import { log } from '../log.js';
+import { NameField } from './checkin.js';
+import { BlueskyPanel } from './bluesky.js';
+import { Segmented } from '../ui.js';
+import { profileName, ensureProfile } from '../circle.js';
 
 const CATS = ['Road', 'Power', 'Flooding', 'Damage', 'Other'];
 const TreeImg = () => html`<svg class="post-img" viewBox="0 0 320 140" role="img" aria-label="Photo: fallen tree across a road">
@@ -81,10 +85,11 @@ function Compose({ live, onPosted }) {
     try {
       const r = await fetch('api/posts', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: text.trim(), category: cat, photo, author: s.postName || 'Neighbor', lat: here.lat, lng: here.lng, area: (ph.hereCity || '') }),
+        body: JSON.stringify({ text: text.trim(), category: cat, photo, author: profileName(s).trim() || 'Neighbor', lat: here.lat, lng: here.lng, area: (ph.hereCity || '') }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
+      if (profileName(get()).trim()) ensureProfile().catch(() => {});
       set((st) => ({ myPosts: { ...(st.myPosts || {}), [j.id]: j.token } }));
       log('post_create', cat, { text: text.trim(), photo: !!photo, shared: true });
       setText(''); setPhoto(null);
@@ -98,8 +103,7 @@ function Compose({ live, onPosted }) {
 
   return html`<form class="card compose" onSubmit=${submit}>
     <strong>Report what you see</strong>
-    ${live ? html`<label class="field mt8"><span>Your name (shown with your posts)</span>
-      <input value=${s.postName || ''} onInput=${(e) => set({ postName: e.target.value.slice(0, 30) })} placeholder="e.g. Jamie, or leave blank for “Neighbor”" /></label>` : ''}
+    ${live ? html`<div class="mt8"><${NameField} label="Your name (shown with your posts and check-ins)" /></div>` : ''}
     <div class="cat-row">${CATS.map((c) => html`<button type="button" class=${'chip sm' + (c === cat ? ' on' : '')} onClick=${() => setCat(c)}>${c}</button>`)}</div>
     <textarea rows="2" value=${text} onInput=${(e) => setText(e.target.value)} placeholder="e.g. Tree down on Packard near Stadium" maxlength="500"></textarea>
     ${photo ? html`<div class="photo-prev"><img src=${photo} alt="Photo to attach" /><button type="button" class="photo-x" aria-label="Remove photo" onClick=${() => setPhoto(null)}><${Icon} n="x" size=${16} /></button></div>` : ''}
@@ -143,10 +147,42 @@ function LiveReports() {
     toast('Reported and hidden. Thanks.');
   };
   const list = (posts || []).filter((p) => !hidden.has(p.id));
+  const [tab, setTab] = useState('near');
+
+  // Share your own post to other apps (Messages, Bluesky, Facebook…) with its photo and a link to a public page.
+  const share = async (p) => {
+    const url = location.origin + '/p/' + p.id;
+    const text = `${p.category} report${p.area ? ' near ' + p.area : ''}: ${p.text}`;
+    let how = 'copied';
+    try {
+      if (navigator.share) {
+        let data = { title: 'StormWise neighbor report', text, url };
+        if (p.photo && navigator.canShare) {
+          try {
+            const blob = await (await fetch(p.photo)).blob();
+            const file = new File([blob], 'storm-report.' + (blob.type.split('/')[1] || 'jpg'), { type: blob.type });
+            if (navigator.canShare({ files: [file] })) data = { ...data, files: [file] };
+          } catch (e) { /* share without the photo */ }
+        }
+        await navigator.share(data);
+        how = data.files ? 'share_photo' : 'share';
+      } else {
+        await navigator.clipboard.writeText(text + ' ' + url);
+        toast('Copied: paste it into any app');
+      }
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+      try { await navigator.clipboard.writeText(text + ' ' + url); toast('Copied: paste it into any app'); } catch (e2) { toast("Couldn't share", 'bad'); return; }
+    }
+    log('post_share', p.id, { how });
+  };
 
   return html`<div class="pad">
     <${Header} title="Neighbor Reports" backTo="/more" />
-    <p class="small muted">Posts from people within about 15 miles of you, from the last 7 days. <strong>Not verified</strong>: check official alerts before acting on them.</p>
+    <${Segmented} value=${tab} onChange=${(v) => { setTab(v); log('reports_tab', v); }}
+      options=${[{ value: 'near', label: 'Near you' }, { value: 'bsky', label: 'Bluesky' }]} />
+    ${tab === 'bsky' ? html`<div class="mt12"><${BlueskyPanel} /></div>` : html`<div>
+    <p class="small muted mt8">Posts from people within about 15 miles of you, from the last 7 days. <strong>Not verified</strong>: check official alerts before acting on them.</p>
     <${Compose} live=${true} onPosted=${load} />
     <div class="sec-hdr mt16"><h2>Near you</h2><button class="link-btn small" onClick=${load}>Refresh</button></div>
     ${s.offline ? html`<p class="small muted">No connection. Posts will load when you're back online.</p>`
@@ -162,10 +198,11 @@ function LiveReports() {
       <p>${p.text}</p>
       ${p.photo ? html`<button class="post-photo" onClick=${() => { log('post_photo_open', p.id); showPhoto(p.photo, 'Photo from ' + p.author); }}><img src=${p.photo} alt=${'Photo from ' + p.author + ': ' + p.text} loading="lazy" /></button>` : ''}
       <div class="row gap8 post-actions">
-        ${mine[p.id] ? html`<button class="link-btn small" onClick=${() => remove(p)}>Delete</button>`
+        ${mine[p.id] ? html`<button class="btn ghost sm" onClick=${() => share(p)}><${Icon} n="send" size=${14} /> Share</button><button class="link-btn small" onClick=${() => remove(p)}>Delete</button>`
           : html`<button class="link-btn small muted-link" onClick=${() => report(p)}>Report</button>`}
       </div>
     </article>`)}
+    </div>`}
   </div>`;
 }
 

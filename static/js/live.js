@@ -9,6 +9,7 @@ let timer = null;
 let inflight = null;
 let lastKey = '';
 let lastAt = 0;
+let pendingTries = 0;
 
 const tz = () => -new Date().getTimezoneOffset();
 
@@ -20,6 +21,11 @@ export function livePlacesPayload(s = get()) {
 }
 
 function locate() {
+  // The browser's own timeout only starts after permission is granted, so an unanswered permission
+  // prompt would wait forever. Give up after 12 s either way.
+  return Promise.race([locateRaw(), new Promise((r) => setTimeout(() => r({ error: 'timeout' }), 12000))]);
+}
+function locateRaw() {
   return new Promise((resolve) => {
     if (!navigator.geolocation || !window.isSecureContext) return resolve({ error: window.isSecureContext ? 'unsupported' : 'insecure' });
     navigator.geolocation.getCurrentPosition(
@@ -44,12 +50,13 @@ export async function updateLocation() {
   const r = await locate();
   if (r.error) {
     set((st) => ({ livePlaces: { ...st.livePlaces, here: { ...st.livePlaces.here, locError: r.error, approx: st.livePlaces.here.approx !== false && !st.livePlaces.here.located } } }));
-    return;
+    return false;
   }
   const next = { lat: Math.round(r.lat * 1000) / 1000, lng: Math.round(r.lng * 1000) / 1000 };
-  if (here.located && kmBetween(here, next) < 0.3) return;
+  if (here.located && kmBetween(here, next) < 0.3) return false;
   set((st) => ({ livePlaces: { ...st.livePlaces, here: { ...st.livePlaces.here, ...next, located: true, approx: false, locError: null } } }));
   log('location_update', '', { acc: Math.round(r.acc || 0) });
+  return true;
 }
 
 export async function refreshLive(force = false) {
@@ -79,8 +86,10 @@ export async function refreshLive(force = false) {
         }
         return patch;
       });
-      // Public buildings are looked up in the background on the server; pick them up shortly.
-      if (j.publicPending) setTimeout(() => refreshLive(true), 6000);
+      // Public buildings, storm reports, outage data and alert shapes load in the background on the
+      // server; pick them up shortly (at most 5 quick retries in a row).
+      if (j.publicPending && pendingTries < 5) { pendingTries++; setTimeout(() => refreshLive(true), 6000); }
+      else if (!j.publicPending) pendingTries = 0;
     } catch (e) {
       set({ liveLoading: false, liveError: String(e.message || e) });
     } finally {
@@ -94,10 +103,12 @@ export function startLive() {
   if (timer) return;
   const tick = async () => {
     if (!isLive() || document.hidden) return;
-    await updateLocation();
     refreshLive();
+    if (await updateLocation()) refreshLive(true);
   };
-  (async () => { await updateLocation(); refreshLive(true); })();
+  // Load right away with the last known (or default) location; refresh again once the phone's location arrives.
+  refreshLive(true);
+  updateLocation().then((moved) => { if (moved) refreshLive(true); });
   timer = setInterval(tick, 120000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
 }

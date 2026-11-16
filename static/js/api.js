@@ -63,7 +63,8 @@ export async function askWeatherBoy(messages, promptId) {
   const userState = {
     checkInStatus: s.checkin.status,
     checkInSentAt: s.checkin.time,
-    circle: myCircle(s).map((c) => ({ name: c.name, status: c.status, time: c.time })),
+    circle: myCircle(s).map((c) => ({ name: c.name, status: c.status, time: c.time, note: c.note || undefined })),
+    myName: (s.profile && s.profile.name) || undefined,
     savedPlaces: myOrder(s).map((id) => places[id].name),
   };
   const live = isLive(s);

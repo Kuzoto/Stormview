@@ -142,7 +142,8 @@ def nws_alerts(lat, lng):
                 "urgency": p.get("urgency"), "certainty": p.get("certainty"),
                 "sent": p.get("sent"), "onset": p.get("onset"), "ends": p.get("ends") or p.get("expires"),
                 "area": p.get("areaDesc") or "", "sender": p.get("senderName") or "National Weather Service",
-                "polygon": poly,
+                "polygon": poly, "zones": (p.get("affectedZones") or [])[:15],
+                "motion": (p.get("parameters") or {}).get("eventMotionDescription") or [],
             })
         return out
     return cached(("al", rnd(lat), rnd(lng)), 60, f)
@@ -499,6 +500,28 @@ def build_live(raw_places, here_id="here", tz_minutes=None):
         timeline.append({"time": fmt_when(ut, now) if ut else fmt_clock(now), "_t": ut.timestamp() if ut else now.timestamp(),
                          "level": "info", "text": "Forecast for %s: %s. Now: %s." % (here["name"], "; ".join(bits), o["now"].lower() or "n/a"),
                          "sourceIds": ["fcst_live"]})
+    # ---- extra map data (storm reports, storm track, alert zones, power) -- see mapdata.py
+    import mapdata as MD
+    import posts as POSTS
+    extra_pending = False
+    lsr, pend = MD.storm_reports(places)
+    extra_pending = extra_pending or pend
+    track = None
+    for a in alerts:
+        track = MD.storm_track(a, places, now)
+        if track:
+            break
+    if track:
+        eta = "; ".join(e["text"] for e in track["etas"]) or "not heading toward your places"
+        timeline.append({"time": fmt_clock(parse_t(track["observedAt"]).astimezone(tz)), "_t": parse_t(track["observedAt"]).timestamp(),
+                         "level": "high", "text": "Radar: %s moving %s at %d mph, %s (estimate)." % (track["what"], track["heading"], track["mph"], eta),
+                         "sourceIds": ["nws_live", "radar_live"]})
+    for r in [r for r in lsr if r["distanceMi"] <= 10][:4]:
+        t = parse_t(r["time"])
+        timeline.append({"time": fmt_when(t, now) if t else "", "_t": t.timestamp() if t else 0, "level": "med",
+                         "text": "Storm report: %s%s, %s mi from %s (%s)." % (r["label"], (" " + r["magnitude"]) if r["magnitude"] else "",
+                                                                               r["distanceMi"], name[r["near"]], r["source"] or "NWS"),
+                         "sourceIds": ["lsr_live"]})
     timeline.sort(key=lambda t: t.pop("_t"))
 
     # ---- impacts per place
@@ -550,6 +573,49 @@ def build_live(raw_places, here_id="here", tz_minutes=None):
         else:
             shelter_rows.append(row(pid, "ok", "No need to shelter.", ["nws_live"]))
 
+    point_info = {r["place"]["id"]: {"state": (r["point"] or {}).get("state")} for r in results}
+    power_data, pend = MD.power_info(places, point_info)
+    extra_pending = extra_pending or pend
+    new_rows = []
+    for base in power_rows:
+        pid = base["place"]
+        p = next(x for x in places if x["id"] == pid)
+        info = power_data["byPlace"].get(pid) or {}
+        utils_all = info.get("utilities", [])
+        in_odin = [u["name"] for u in utils_all if u["inOdin"]]
+        not_odin = [u["name"] for u in utils_all if not u["inOdin"]][:2]
+        unames = join_names(in_odin[:2]) or "your utility"
+        near_lsr = [r for r in lsr if r["power"] and MD.miles(p["lat"], p["lng"], r["lat"], r["lng"]) <= 10]
+        near_posts = POSTS.nearby(p["lat"], p["lng"], radius_mi=5, categories=("Power",))
+        tone, src, parts = base["tone"], list(base["sourceIds"]), []
+        co = info.get("countyOut")
+        if info.get("covered"):
+            src = ["odin_live"] + [s for s in src if s != "outages_live"]
+            if co and co["out"]:
+                tone = "bad" if co["out"] >= 500 else "warn"
+                parts.append("%s customers without power in %s County (%s, reported to the federal ODIN system)." % (format(co["out"], ","), co["county"], unames))
+            else:  # ODIN lists only counties with outages, so no entry means none reported
+                parts.append("%s reports no outages here (federal ODIN data)." % unames)
+            parts.append(base["text"].split(". Live outages")[0].split(". Check your")[0].rstrip(".") + ".")
+            if not_odin:
+                parts.append("If your power comes from %s, check its outage map instead." % " or ".join(not_odin))
+        else:
+            parts.append(base["text"].split(" Live outages")[0].split(" Check your")[0])
+            if not_odin:
+                parts.append("No live outage data: %s %s share outages publicly, so check the outage map." % (
+                    " and ".join(not_odin), "doesn't" if len(not_odin) == 1 else "don't"))
+        if near_lsr:
+            tone = "bad" if tone == "bad" else "warn"
+            r = near_lsr[0]
+            parts.append("NWS storm report: %s near %s (%s)." % ((r["remark"] or r["label"])[:90].rstrip("."), r["city"], r["source"] or "NWS"))
+            src.append("lsr_live")
+        if near_posts:
+            tone = "bad" if tone == "bad" else "warn"
+            parts.append("%d neighbor post%s about power within 5 mi (unverified)." % (len(near_posts), "s" if len(near_posts) > 1 else ""))
+            src.append("posts_live")
+        new_rows.append(row(pid, tone, " ".join(parts), list(dict.fromkeys(src))))
+    power_rows = new_rows
+
     def worst(rows):
         order = {"bad": 2, "warn": 1, "ok": 0}
         return max(rows, key=lambda r: order[r["tone"]])
@@ -558,8 +624,11 @@ def build_live(raw_places, here_id="here", tz_minutes=None):
         return join_names(name[r["place"]] for r in rows if r["tone"] == tone)
 
     w = worst(power_rows)
-    power = {"tone": w["tone"], "headline": {"bad": "Outages likely", "warn": "Outages possible", "ok": "Low outage risk"}[w["tone"]],
-             "sub": ((pnames(power_rows, w["tone"]) + " · ") if w["tone"] != "ok" else "") + "Live outages: utility map",
+    any_odin = any(v.get("covered") for v in power_data["byPlace"].values())
+    any_out = any((v.get("countyOut") or {}).get("out") for v in power_data["byPlace"].values() if v.get("covered"))
+    power = {"tone": w["tone"],
+             "headline": "Outages reported" if any_out else {"bad": "Outages likely", "warn": "Outages possible", "ok": "Low outage risk"}[w["tone"]],
+             "sub": ((pnames(power_rows, w["tone"]) + " · ") if w["tone"] != "ok" else "") + ("Live data: ODIN" if any_odin else "Live outages: utility map"),
              "rows": power_rows}
     w = worst(water_rows)
     water = {"tone": w["tone"], "headline": "Flood alert" if w["tone"] != "ok" else "No flood alerts",
@@ -605,6 +674,18 @@ def build_live(raw_places, here_id="here", tz_minutes=None):
         if o:
             fallback += " Forecast for %s: %s." % (here["name"], (o["now"] or "n/a").lower())
 
+    # ---- alert areas: storm-based polygons, else the NWS zones/counties the alert was issued for
+    warn_polys = []
+    for a in alerts[:6]:
+        if a["polygon"]:
+            warn_polys.append({"event": a["event"], "level": a["level"], "points": a["polygon"], "zone": False})
+            continue
+        for z in a["zones"][:12]:
+            rings, pend = MD.zone_shape(z)
+            extra_pending = extra_pending or pend
+            for ring in rings:
+                warn_polys.append({"event": a["event"], "level": a["level"], "points": ring, "zone": True})
+
     pt = by_id[here["id"]]["point"] or {}
     live = {
         "id": "live", "mode": "live", "label": "Live", "level": level, "clock": fmt_clock(now),
@@ -613,12 +694,18 @@ def build_live(raw_places, here_id="here", tz_minutes=None):
         "timeline": timeline,
         "impacts": {"power": power, "water": water, "roads": roads, "shelter": shelter},
         "storm": None, "warnPolygon": None, "outages": [], "roadMarks": [], "routeHome": None,
-        "warnPolygons": [{"event": a["event"], "level": a["level"], "points": a["polygon"]} for a in alerts if a["polygon"]][:8],
+        "warnPolygons": warn_polys,
         "alerts": [{k: a[k] for k in ("event", "headline", "severity", "level", "places", "sender", "area")} for a in alerts[:10]],
         "summaryFallback": fallback,
         "forecast": fc,
         "publicPlaces": public,
-        "publicPending": public_pending,
+        "publicPending": public_pending or extra_pending,
+        "stormReports": lsr,
+        "stormTrack": track,
+        "power": power_data,
+        "mapPosts": [p for pl in places[:3] for p in POSTS.nearby(pl["lat"], pl["lng"], radius_mi=15, limit=40,
+                                                                  categories=("Road", "Power", "Flooding", "Damage"))],
+        "radarTime": MD.radar_time(),
         "placeInfo": {r["place"]["id"]: {"city": (r["point"] or {}).get("city"), "state": (r["point"] or {}).get("state")} for r in results},
         "hereCity": ", ".join(x for x in (pt.get("city"), pt.get("state")) if x),
         "sources": LIVE_SOURCES,
@@ -641,7 +728,8 @@ Your job:
 
 Hard rules:
 - Use ONLY facts in LIVE DATA. Never invent alerts, times, numbers or sources. You explain official information; you are not a forecaster.
-- This app has NO live data for power outages, boil-water notices or road closures. If asked, give the weather-based risk from LIVE DATA and tell the user which source to check (utility outage map, water utility, 511). Never claim power or water is on or off.
+- Power: LIVE DATA "power" has county outage counts ONLY where the utility reports to the federal ODIN system ("covered": true). Otherwise there is no live outage data: give the weather-based risk plus any NWS storm reports or neighbor posts, and name the outage map to check. Never claim a specific home has or lacks power.
+- There is NO live data for boil-water notices or road closures. Use NWS storm reports (flooding, trees down) and alerts, and point to the water utility or 511. Neighbor posts are unverified.
 - Public buildings in LIVE DATA come from OpenStreetMap: they are not official shelters and their hours, power and water are unconfirmed.
 - If the data does not answer the question, say so plainly and point to the most relevant official source (or 911 for an emergency).
 - When the user's safety is at stake, lead with the action they should take.
@@ -678,6 +766,12 @@ def build_system_live(live, user_state, guide, max_words=90):
     view = {k: v for k, v in live.items() if k not in ("warnPolygons", "sources", "_places", "storm", "warnPolygon",
                                                         "outages", "roadMarks", "routeHome", "digest", "fetchedAt", "placeInfo")}
     view["publicPlaces"] = [{k: p[k] for k in ("name", "kind", "near", "distance", "hours")} for p in live.get("publicPlaces", [])[:8]]
+    for k in ("mapPosts", "radarTime", "publicPending", "errors"):
+        view.pop(k, None)
+    view["stormReports"] = [{k: r[k] for k in ("label", "magnitude", "city", "source", "remark", "time", "distanceMi")} for r in live.get("stormReports", [])[:10]]
+    pw = live.get("power") or {}
+    view["power"] = {"byPlace": pw.get("byPlace"), "whereToCheck": [l["label"] for l in pw.get("links", [])],
+                     "note": "Counts come from ODIN only for utilities that report to it; otherwise there is no live outage data."}
     srcs = "\n".join("- %s: %s (%s)" % (k, v["name"], v["kind"]) for k, v in LIVE_SOURCES.items())
     return LIVE_SYSTEM.format(
         here=here, city=(" (" + live["hereCity"] + ")") if live.get("hereCity") else "",

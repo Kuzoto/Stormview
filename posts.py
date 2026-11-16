@@ -102,6 +102,8 @@ def public(p, lat=None, lng=None):
     if lat is not None:
         out["distanceMi"] = round(miles(lat, lng, p["lat"], p["lng"]), 1)
     out["reports"] = len(p["reports"])
+    # Map pins use a coarse location (~500 m grid), never the poster's exact spot.
+    out["approx"] = [round(round(p["lat"] / 0.005) * 0.005, 4), round(round(p["lng"] / 0.005) * 0.005, 4)]
     return out
 
 
@@ -138,12 +140,13 @@ def create(body, ip):
     return dict(public(post, lat, lng), token=post["token"])
 
 
-def nearby(lat, lng, radius_mi=15, limit=60):
+def nearby(lat, lng, radius_mi=15, limit=60, categories=None):
     now = time.time()
     with _lock:
         items = [p for p in _posts.values()
                  if now - p["createdAt"] < MAX_AGE_S and len(p["reports"]) < HIDE_AFTER_REPORTS
-                 and miles(lat, lng, p["lat"], p["lng"]) <= radius_mi]
+                 and miles(lat, lng, p["lat"], p["lng"]) <= radius_mi
+                 and (not categories or p["category"] in categories)]
     items.sort(key=lambda p: -p["createdAt"])
     return [public(p, lat, lng) for p in items[:limit]]
 
@@ -182,3 +185,27 @@ def photo_path(name):
         return None
     path = os.path.join(PHOTOS, name)
     return path if os.path.exists(path) else None
+
+
+def post_page(pid):
+    """Small public web page for one post, so a shared link shows something useful."""
+    import html as H
+    with _lock:
+        p = _posts.get(pid)
+        if not p or len(p["reports"]) >= HIDE_AFTER_REPORTS or time.time() - p["createdAt"] > MAX_AGE_S:
+            return None
+        p = dict(p)
+    when = time.strftime("%b %d, %H:%M UTC", time.gmtime(p["createdAt"]))
+    img = '<img src="/%s" alt="Photo with this report" style="width:100%%;border-radius:12px;margin-top:8px">' % H.escape(p["photo"]) if p.get("photo") else ""
+    return ("""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>%(cat)s report · StormWise</title>
+<meta property="og:title" content="%(cat)s report%(area)s"><meta property="og:description" content="%(text)s">%(og)s
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#f2f4f7;color:#0f1b2d}main{max-width:480px;margin:0 auto;padding:20px 16px}
+.card{background:#fff;border-radius:16px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.08)}.tag{display:inline-block;font-size:.75rem;font-weight:800;padding:3px 8px;border-radius:6px;background:#eef0f3;margin-right:6px}
+.warn{background:#fff4e0;color:#b26a00}.m{color:#6b7684;font-size:.88rem}</style></head><body><main><div class="card">
+<div><strong>%(author)s</strong> <span class="m">· %(when)s%(area)s</span></div>
+<p><span class="tag">%(cat)s</span><span class="tag warn">? Unverified neighbor report</span></p><p>%(text)s</p>%(img)s</div>
+<p class="m">Shared from StormWise, a CSE 593 student prototype. Check official alerts (weather.gov) before acting on community reports.</p>
+</main></body></html>""" % {"cat": H.escape(p["category"]), "author": H.escape(p["author"]), "when": when, "text": H.escape(p["text"]),
+                               "area": (" · near " + H.escape(p["area"])) if p.get("area") else "", "img": img,
+                               "og": ('<meta property="og:image" content="/%s">' % H.escape(p["photo"])) if p.get("photo") else ""})

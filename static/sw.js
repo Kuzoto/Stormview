@@ -1,10 +1,10 @@
 // Service worker: makes the app installable and usable offline (last known alert stays readable).
 // Only active on https:// or http://localhost (browser rule).
-const VERSION = 'sw-v3';
+const VERSION = 'sw-v4';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css', 'data/scenario.json',
   'vendor/preact-htm.js', 'vendor/leaflet.js', 'vendor/leaflet.css', 'vendor/chart.umd.js',
-  'js/app.js', 'js/store.js', 'js/ui.js', 'js/log.js', 'js/api.js', 'js/live.js',
+  'js/app.js', 'js/store.js', 'js/ui.js', 'js/log.js', 'js/api.js', 'js/live.js', 'js/circle.js', 'js/screens/join.js', 'js/bluesky.js', 'js/screens/bluesky.js',
   'js/screens/lock.js', 'js/screens/home.js', 'js/screens/impact.js', 'js/screens/map.js',
   'js/screens/ask.js', 'js/screens/checkin.js', 'js/screens/more.js', 'js/screens/forecast.js',
   'js/screens/reports.js', 'js/screens/sources.js', 'js/screens/places.js', 'js/screens/admin.js',
@@ -26,8 +26,8 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
-  // API: always network (logs, chat, summaries).
-  if (url.pathname.startsWith('/api/')) return;
+  // API, photos and share/reply pages: always network.
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/r/') || url.pathname.startsWith('/p/')) return;
   // Map tiles: cache what has been seen so the map still shows offline.
   if (url.hostname.endsWith('tile.openstreetmap.org')) {
     e.respondWith(
@@ -39,6 +39,8 @@ self.addEventListener('fetch', (e) => {
     );
     return;
   }
+  // Other sites (radar tiles, Bluesky, ...): let the browser handle them directly.
+  if (url.origin !== location.origin) return;
   // App shell: network first (so edits show up immediately during development), cache fallback offline.
   e.respondWith(
     fetch(e.request)
@@ -49,6 +51,6 @@ self.addEventListener('fetch', (e) => {
         }
         return r;
       })
-      .catch(() => caches.match(e.request, { ignoreSearch: true }))
+      .catch(() => caches.match(e.request, { ignoreSearch: true }).then((r) => r || Response.error()))
   );
 });

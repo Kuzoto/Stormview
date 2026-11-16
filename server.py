@@ -18,6 +18,9 @@ Serves the PWA in ./static and these JSON endpoints:
   POST /api/posts                  -> create a post (optional photo); DELETE /api/posts/<id> (author token)
   POST /api/posts/<id>/report      -> flag a post (hidden after 3 reports)
   GET  /photos/<id>.jpg            -> uploaded post photos
+  GET  /p/<id>                     -> public page for one shared post (for the Share button)
+  POST /api/me, GET /api/circle, POST /api/status, /api/circle/invite|accept|ping, DELETE /api/circle/<id>
+  GET  /r/<code>, POST /api/r/<code> -> safety circle sync + one-tap reply page (circle.py)
   POST /api/log                    -> append study events to logs/<participant>.jsonl
   GET  /api/logs                   -> list participants with logs
   GET  /api/logs/<pid>.csv|.jsonl  -> download a participant's events
@@ -41,6 +44,7 @@ from urllib.parse import urlparse, parse_qs
 
 import live as LIVE
 import posts as POSTS
+import circle as CIRCLE
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(ROOT, "static")
@@ -503,6 +507,27 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_html(self, text, code=200):
+        body = text.encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def circle_call(self, fn):
+        try:
+            return self.send_json(fn(self.headers.get("X-User-Token")))
+        except CIRCLE.AuthError as e:
+            return self.send_json({"error": str(e)}, 401)
+        except PermissionError as e:
+            return self.send_json({"error": str(e)}, 429)
+        except ValueError as e:
+            return self.send_json({"error": str(e)}, 400)
+
     def read_body(self):
         n = int(self.headers.get("Content-Length") or 0)
         if n > (5_000_000 if urlparse(self.path).path == "/api/posts" else 2_000_000):
@@ -552,6 +577,18 @@ class Handler(SimpleHTTPRequestHandler):
             except (KeyError, ValueError):
                 return self.send_json({"error": "lat and lng required"}, 400)
             return self.send_json({"posts": POSTS.nearby(lat, lng)})
+        if u.path == "/api/circle":
+            return self.circle_call(lambda t: CIRCLE.circle(t))
+        m = re.match(r"^/api/circle/invite/([A-Za-z0-9]{4,16})$", u.path)
+        if m:
+            info = CIRCLE.invite_info(m.group(1))
+            return self.send_json(info) if info else self.send_json({"error": "expired"}, 404)
+        if re.match(r"^/r/[A-Za-z0-9]{4,16}$", u.path):
+            return self.send_html(CIRCLE.REPLY_PAGE)
+        m = re.match(r"^/p/([0-9a-f]{16})$", u.path)
+        if m:
+            page = POSTS.post_page(m.group(1))
+            return self.send_html(page) if page else self.send_html("<!doctype html><meta charset=utf-8><p>This post is no longer available.", 404)
         if u.path.startswith("/photos/"):
             path = POSTS.photo_path(u.path[len("/photos/"):])
             if not path:
@@ -571,6 +608,9 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_DELETE(self):
         u = urlparse(self.path)
+        mc = re.match(r"^/api/circle/([A-Za-z0-9]{4,16})$", u.path)
+        if mc:
+            return self.circle_call(lambda t: CIRCLE.remove(t, mc.group(1)))
         m = re.match(r"^/api/posts/([0-9a-f]{16})$", u.path)
         if not m:
             return self.send_json({"error": "not found"}, 404)
@@ -591,6 +631,20 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json({"error": str(e)}, 429)
             except ValueError as e:
                 return self.send_json({"error": str(e)}, 400)
+        ip = self.client_address[0]
+        if u.path == "/api/me":
+            return self.circle_call(lambda t: CIRCLE.me(t, body.get("name"), ip))
+        if u.path == "/api/status":
+            return self.circle_call(lambda t: CIRCLE.set_status(t, body.get("state"), body.get("note"), body.get("loc")))
+        if u.path == "/api/circle/invite":
+            return self.circle_call(lambda t: CIRCLE.invite(t, body.get("name")))
+        if u.path == "/api/circle/accept":
+            return self.circle_call(lambda t: CIRCLE.accept(t, str(body.get("code") or "")))
+        if u.path == "/api/circle/ping":
+            return self.circle_call(lambda t: CIRCLE.ping(t, str(body.get("id") or "")))
+        m = re.match(r"^/api/r/([A-Za-z0-9]{4,16})$", u.path)
+        if m:
+            return self.circle_call(lambda t: CIRCLE.guest_reply(m.group(1), body.get("state"), body.get("note"), ip))
         m = re.match(r"^/api/posts/([0-9a-f]{16})/report$", u.path)
         if m:
             return self.send_json({"ok": POSTS.report(m.group(1), body.get("device"))})

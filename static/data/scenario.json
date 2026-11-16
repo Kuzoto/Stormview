@@ -1211,6 +1211,30 @@
    "kind": "official",
    "url": "https://www.ready.gov/",
    "about": "Official guidance on where and how to shelter for each type of hazard."
+  },
+  "lsr_live": {
+   "name": "NWS Local Storm Reports",
+   "short": "NWS reports",
+   "org": "National Weather Service (via Iowa Environmental Mesonet)",
+   "kind": "official",
+   "url": "https://www.weather.gov/",
+   "about": "Damage, flooding, downed trees and power lines, tornadoes and hail, reported to the NWS by trained spotters, emergency managers, police and the public. Checked by forecasters before they are issued."
+  },
+  "odin_live": {
+   "name": "ODIN outage data (U.S. Dept. of Energy)",
+   "short": "ODIN",
+   "org": "DOE / Oak Ridge National Laboratory",
+   "kind": "official",
+   "url": "https://odin.ornl.gov/",
+   "about": "Live outage counts that participating utilities share with the federal Outage Data Initiative Nationwide, by county. Not every utility takes part (DTE Energy does not)."
+  },
+  "posts_live": {
+   "name": "Neighbor Reports",
+   "short": "Neighbors",
+   "org": "People using this app nearby",
+   "kind": "community",
+   "url": "",
+   "about": "Posts from app users near your places. Not verified."
   }
  }
 }

@@ -30,8 +30,9 @@ function initialState() {
   };
 }
 
-const TRANSIENT = ['toasts', 'notif', 'sheet', 'summaries', 'llm', 'likertOpen', 'liveLoading', 'liveError'];
-// Persisted live-mode extras: postName, myPosts {id: deleteToken}, hiddenPosts [ids], deviceId.
+const TRANSIENT = ['toasts', 'notif', 'sheet', 'summaries', 'llm', 'likertOpen', 'liveLoading', 'liveError', 'circleError'];
+// Persisted live-mode extras: profile {uid, token, name}, circleLive (last /api/circle), invitePhones {code: phone},
+// myPosts {id: deleteToken}, hiddenPosts [ids], deviceId, bsky (Bluesky session).
 
 export async function loadScenario() {
   const r = await fetch('data/scenario.json', { cache: 'no-cache' });
@@ -106,7 +107,10 @@ export const myPlaces = (s = state) => (isLive(s) ? s.livePlaces : s.places);
 export const myOrder = (s = state) => (isLive(s) ? s.liveOrder : s.placeOrder).filter((id) => myPlaces(s)[id]);
 export const hereId = (s = state) => (isLive(s) ? 'here' : SC.meta.userLocation);
 export const placeName = (id, s = state) => (myPlaces(s)[id] && myPlaces(s)[id].name) || id;
-export const myCircle = (s = state) => (isLive(s) ? s.liveCircle : s.circle);
+// Live circle comes from the server (circle.js); normalized to the scenario's {name, status, time} shape.
+export const myCircle = (s = state) => (isLive(s)
+  ? ((s.circleLive && s.circleLive.people) || []).map((p) => ({ ...p, status: p.status ? p.status.state : 'none', time: p.status ? new Date(p.status.time * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null }))
+  : s.circle);
 /** Update the active places (live or scenario) with fn({places, order}) -> {places, order}. */
 export function setPlaces(fn) {
   set((st) => {

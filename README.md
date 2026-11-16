@@ -39,21 +39,26 @@ It then opens without browser chrome.
 
 | Shown in the app | Source | Notes |
 |---|---|---|
-| Alerts (watches, warnings, advisories), banner, timeline, warning polygons on the map | NWS `api.weather.gov` | Refreshed every 2 min while the app is open, and when it returns to the foreground. US only. |
+| Alerts (watches, warnings, advisories), banner, timeline, alert areas on the map (storm polygons, or the counties/zones the alert covers) | NWS `api.weather.gov` | Refreshed every 2 min while the app is open, and when it returns to the foreground. US only. |
 | Hourly forecast (temperature, rain/snow chance, wind) | NWS | Forecast at My Places, plus the forecast line in Updates |
-| Radar | NEXRAD mosaic tiles via Iowa Environmental Mesonet | Map → Radar |
+| Radar | NEXRAD mosaic tiles via Iowa Environmental Mesonet | Map → Radar, with the image time and a 50-minute loop (▶) |
+| Storm path + arrival estimates | Storm motion in NWS tornado / severe thunderstorm warnings | Purple dashed path for the next 60 min, plus "may reach Work in about 10 min". An estimate only. |
+| Storm reports | NWS Local Storm Reports (trees/power lines down, flooding, tornado, hail, snow) via IEM | Orange pins on Radar/Roads/Power, in Updates, and on the Power/Roads detail pages. Last 48 h, within 30 mi. |
+| Power outages | DOE/ORNL **ODIN** (county level) for utilities that report to it; the utility serving each place comes from the EIA/HIFLD service-territory map | If the utility doesn't report (e.g. **DTE**), the app says so and shows NWS reports plus neighbor posts about power, with links to the utility's outage map and PowerOutage.us |
+| Road hazards | NWS storm reports + neighbor Road/Flooding posts on the map | No free live closure/traffic feed yet (TomTom key planned, see PLANNED.md) |
 | Public buildings near your places (libraries, community centers, town halls) | OpenStreetMap (Nominatim) | Labeled *not official shelters*. Looked up in the background and cached for a week. |
 | My location | Phone GPS, rounded to ~100 m | Needs **https** (the tunnel) or localhost. Otherwise the app uses Ann Arbor and says so. You can also set it by hand in My Places. |
 | Add a place by address or city | US Census geocoder, Open-Meteo | More → My Places |
 | Power, water, road impact cards | **Derived** from NWS alerts and the forecast (e.g. wind/ice → "Outages possible") | No free public outage, boil-water or road-closure feed exists, so these cards link to the right official source instead of inventing data. |
-| Check-In | Your phone's share sheet / text messages | Contacts are saved on the phone only. Replies come back as normal texts. |
-| Neighbor Reports | Posts from other app users, stored on the laptop running the server | Shared with everyone within ~15 miles who uses the same link, for 7 days, marked unverified. Optional photo. See below. |
+| Check-In | Synced through the server (`circle.py`) | Pick a display name, then **+ Add person** sends an invite link. App users who open it are connected both ways and see each other's check-ins in the app (~20 s). People without the app reply on a one-tap web page (`/r/<code>`). See PLANNED.md §1. |
+| Neighbor Reports | Posts from other app users, stored on the laptop running the server; **Bluesky** tab | Shared with everyone within ~15 miles who uses the same link, for 7 days, marked unverified. Optional photo, **Share** button on your own posts. Bluesky: sign in with an app password to see weather posts from people you follow and a city search. |
 
 All the live services are free and need no API keys. In live mode, WeatherBoy is grounded in the live data and told that it has no outage, water or closure data.
 
 ### Neighbor Reports (shared posts)
 
 - Anyone can post text plus an optional photo, with a display name and no account. Posts are saved in `userdata/` (git-ignored) on the machine running `server.py`, so **only phones using the same server/link see each other's posts**.
+- Posts use the same **display name** as check-ins.
 - **Privacy:** the poster's location is rounded to ~100 m and only the distance is shown ("0.4 mi away"). Photos are resized (max 1280 px) and re-encoded on the phone, which removes EXIF data including GPS. Posting needs a real location, either the phone's or one set by hand.
 - **Moderation:** authors can delete their own posts (a secret token saved on their phone). Anyone can **Report** a post: it hides it for them, and 3 reports hide it for everyone. Limited to 6 posts a minute per device/network, and posts expire after 7 days. To wipe everything, stop the server and delete `userdata/`.
 - In the **practice scenario**, posts (and photos) stay on the phone, alongside the scripted posts, so the study is unaffected.
@@ -113,6 +118,9 @@ prototype/
   server.py               Python stdlib server: static files, /api/chat, /api/summary, /api/live, /api/geocode, /api/log(s)
   live.py                 Live mode: NWS alerts/forecast, OpenStreetMap public buildings, geocoding, live AI prompt
   posts.py                Shared Neighbor Reports: posts + photos in userdata/ (git-ignored), delete/report
+  mapdata.py              Live map extras: NWS storm reports, zone shapes, storm track, radar time, ODIN power + utility lookup
+  circle.py               Safety circle sync: display names, invite links, statuses, "ask if OK", /r/<code> reply page
+  PLANNED.md              Planned / proposed features
   .env.example            OpenAI settings template (copy to .env)
   tunnel.sh               HTTPS tunnel for phones (cloudflared quick tunnel)
   static/
@@ -125,6 +133,8 @@ prototype/
     js/ui.js              banner, source chips/sheet, icons, header, modal, markdown-lite
     js/api.js  js/log.js  server calls; event logging
     js/live.js            live mode: phone location, 2-minute refresh of /api/live
+    js/circle.js          display name + circle sync (polls /api/circle every 20 s)
+    js/bluesky.js         Bluesky sign-in, timeline and search (runs on the phone)
     js/screens/*.js       lock, home, impact, map, ask, checkin, more, forecast, reports, sources, places, admin
   logs/                   per-participant event logs, LLM spend, summary cache (git-ignored)
 ```
